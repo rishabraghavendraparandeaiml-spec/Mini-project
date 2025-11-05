@@ -101,12 +101,22 @@ app.listen(PORT, () => {
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Check if required environment variables are set
-  const requiredEnvVars = ['ORS_API_KEY', 'OWM_API_KEY'];
+  const requiredEnvVars = ['ORS_API_KEY'];
   const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-  
+
   if (missingVars.length > 0) {
-    console.warn(`⚠️  Missing environment variables: ${missingVars.join(', ')}`);
+    console.warn(`⚠️  Missing required environment variables: ${missingVars.join(', ')}`);
     console.warn('   Please check your .env file and ensure all API keys are set');
+  }
+
+  // Weather API key is optional; support multiple names and fall back to Open-Meteo
+  const hasWeatherKey = Boolean(
+    process.env.OPENWEATHER_API_KEY ||
+    process.env.OWM_API_KEY ||
+    process.env.WEATHER_API_KEY
+  );
+  if (!hasWeatherKey) {
+    console.log('ℹ️  No OpenWeather/WeatherAPI key found. Using Open-Meteo fallback (no key required).');
   }
 });
 

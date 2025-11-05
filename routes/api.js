@@ -1396,7 +1396,7 @@ router.get('/weather', async (req, res) => {
     }
 
     // Try OpenWeatherMap first (if key is provided)
-    const openWeatherKey = process.env.OPENWEATHER_API_KEY || process.env.WEATHER_API_KEY;
+  const openWeatherKey = process.env.OPENWEATHER_API_KEY || process.env.OWM_API_KEY || process.env.WEATHER_API_KEY;
     
     try {
       // OpenWeatherMap API

@@ -798,6 +798,52 @@
         .btn-close {
             filter: brightness(0) invert(1);
         }
+
+        /* Route Selection Popup (right corner) */
+        .route-popup {
+            position: absolute;
+            top: 320px; /* below header/weather area */
+            right: 20px;
+            z-index: 1001;
+            width: 360px;
+            max-width: calc(100% - 40px);
+            max-height: 50vh;
+            overflow: hidden;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            display: none;
+        }
+
+        .route-popup.show { display: block; }
+
+        .route-popup-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .route-popup-title { font-size: 14px; font-weight: 600; margin: 0; }
+
+        .route-popup-body {
+            padding: 10px 12px;
+            overflow-y: auto;
+            max-height: 36vh;
+        }
+
+        .route-popup-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 10px 12px;
+            border-top: 1px solid #e0e0e0;
+            background: #fafafa;
+            border-radius: 0 0 16px 16px;
+        }
     </style>
 </head>
 <body>
@@ -860,6 +906,9 @@
                         </div>
                         <button id="refreshWeatherBtn" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 5px; cursor: pointer; font-size: 10px;" title="Refresh weather now">
                             <i class="fas fa-redo"></i>
+                        </button>
+                        <button id="closeWeatherBtn" style="background: transparent; border: none; color: white; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 14px; line-height: 1;" title="Close">
+                            <i class="fas fa-times"></i>
                         </button>
                     </div>
                 </div>
@@ -1002,29 +1051,25 @@
         </button>
     </div>
 
-    <!-- Route Selection Modal - Compact Bottom Sheet -->
-    <div class="modal fade" id="routeSelectionModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-bottom">
-            <div class="modal-content" style="max-height: 40vh; border-radius: 20px 20px 0 0;">
-                <div class="modal-header" style="padding: 12px 20px; border-bottom: 2px solid #e0e0e0;">
-                    <h6 class="modal-title mb-0" style="font-size: 16px; font-weight: 600;">
-                        <i class="fas fa-route me-2" style="color: #4285F4;"></i>
-                        Choose Your Route
-                    </h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" style="font-size: 14px;"></button>
-                </div>
-                <div class="modal-body" style="padding: 15px; overflow-y: auto; max-height: 25vh;">
-                    <div id="routeOptionsContainer">
-                        <!-- Route options will be dynamically inserted here -->
-                    </div>
-                </div>
-                <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid #e0e0e0;">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" style="padding: 8px 16px;">Cancel</button>
-                    <button type="button" class="btn btn-primary btn-sm" id="confirmRouteBtn" disabled style="padding: 8px 20px;">
-                        <i class="fas fa-play me-2"></i>Start Navigation
-                    </button>
-                </div>
-            </div>
+    <!-- Route Selection Popup (Right Corner) -->
+    <div class="route-popup" id="routePopup">
+        <div class="route-popup-header">
+            <h6 class="route-popup-title mb-0">
+                <i class="fas fa-route me-2"></i>
+                Choose Your Route
+            </h6>
+            <button type="button" class="btn btn-sm btn-light" id="routePopupCloseBtn" title="Close" style="line-height:1; padding:4px 8px;">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="route-popup-body">
+            <div id="routeOptionsContainer"><!-- options injected here --></div>
+        </div>
+        <div class="route-popup-footer">
+            <button type="button" class="btn btn-secondary btn-sm" id="routePopupCancelBtn">Cancel</button>
+            <button type="button" class="btn btn-primary btn-sm" id="confirmRouteBtn" disabled>
+                <i class="fas fa-play me-2"></i>Start Navigation
+            </button>
         </div>
     </div>
 

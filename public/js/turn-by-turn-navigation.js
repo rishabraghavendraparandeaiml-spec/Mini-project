@@ -116,7 +116,8 @@ class TurnByTurnNavigation {
             toggleInfoBtn: document.getElementById('toggleInfoBtn'),
             weatherLastUpdate: document.getElementById('weatherLastUpdate'),
             weatherLiveIcon: document.getElementById('weatherLiveIcon'),
-            refreshWeatherBtn: document.getElementById('refreshWeatherBtn')
+            refreshWeatherBtn: document.getElementById('refreshWeatherBtn'),
+            closeWeatherBtn: document.getElementById('closeWeatherBtn')
         };
         
         // Bootstrap modal instance
@@ -151,8 +152,8 @@ class TurnByTurnNavigation {
         // Start tracking user location
         this.startLocationTracking();
         
-        // Setup map click handler
-        this.setupMapClickHandler();
+    // Setup map click handler (to hide weather panel on map click)
+    this.setupMapClickHandler();
         
         // Initialize pothole modal
         this.potholeModalInstance = new bootstrap.Modal(this.elements.potholeModal);
@@ -208,6 +209,11 @@ class TurnByTurnNavigation {
             this.voiceEnabled = e.target.checked;
             this.elements.voiceBtn.classList.toggle('active', this.voiceEnabled);
         });
+
+        // Close weather button
+        if (this.elements.closeWeatherBtn) {
+            this.elements.closeWeatherBtn.addEventListener('click', () => this.hideWeather());
+        }
         
         // Starting point input with autocomplete
         this.elements.startingPointInput.addEventListener('input', (e) => {
@@ -297,29 +303,17 @@ class TurnByTurnNavigation {
         // Photo selection
         this.elements.potholePhoto.addEventListener('change', (e) => this.handlePhotoSelection(e));
 
-        // Route confirmation button
+        // Route confirmation button (popup)
         const confirmRouteBtn = document.getElementById('confirmRouteBtn');
         if (confirmRouteBtn) {
             confirmRouteBtn.addEventListener('click', () => {
                 console.log('🔘 Confirm button clicked, selected route:', this.selectedRouteIndex);
-                
-                // Hide modal
-                const modal = bootstrap.Modal.getInstance(document.getElementById('routeSelectionModal'));
-                if (modal) {
-                    modal.hide();
-                } else {
-                    // Fallback: hide modal manually
-                    const modalElement = document.getElementById('routeSelectionModal');
-                    if (modalElement) {
-                        modalElement.classList.remove('show');
-                        modalElement.style.display = 'none';
-                        document.body.classList.remove('modal-open');
-                        const backdrop = document.querySelector('.modal-backdrop');
-                        if (backdrop) backdrop.remove();
-                    }
-                }
-                
-                // Start navigation with selected route (this will also clear preview lines)
+
+                // Hide route popup if visible
+                const routePopup = document.getElementById('routePopup');
+                if (routePopup) routePopup.classList.remove('show');
+
+                // Start navigation with selected route
                 if (this.selectedRouteIndex !== undefined && this.selectedRouteIndex !== null) {
                     this.startNavigationWithRoute(this.selectedRouteIndex);
                 } else {
@@ -327,9 +321,26 @@ class TurnByTurnNavigation {
                     this.showToast('Please select a route first', 'error');
                 }
             });
-        } else {
-            console.error('❌ Confirm route button not found!');
         }
+
+        // Route popup cancel/close actions
+        const routePopupCancelBtn = document.getElementById('routePopupCancelBtn');
+        const routePopupCloseBtn = document.getElementById('routePopupCloseBtn');
+        const hideRoutePopup = () => {
+            const routePopup = document.getElementById('routePopup');
+            if (routePopup) routePopup.classList.remove('show');
+            // Clean up preview lines since no route selected
+            if (this.allRoutePreviewLines) {
+                this.allRoutePreviewLines.forEach(line => { if (line) this.map.removeLayer(line); });
+                this.allRoutePreviewLines = [];
+            }
+            if (this.allRoutePreviewOutlines) {
+                this.allRoutePreviewOutlines.forEach(outline => { if (outline) this.map.removeLayer(outline); });
+                this.allRoutePreviewOutlines = [];
+            }
+        };
+        if (routePopupCancelBtn) routePopupCancelBtn.addEventListener('click', hideRoutePopup);
+        if (routePopupCloseBtn) routePopupCloseBtn.addEventListener('click', hideRoutePopup);
         
         // Submit pothole report
         this.elements.submitPotholeBtn.addEventListener('click', () => this.submitPotholeReport());
@@ -351,6 +362,19 @@ class TurnByTurnNavigation {
                 this.setDestination(e.latlng.lat, e.latlng.lng, 'Custom Location');
                 this.elements.destinationInput.value = coords;
                 this.elements.startNavBtn.disabled = false;
+            }
+        });
+    }
+
+    /**
+     * Setup map click handler to hide weather panel when clicking on the map
+     */
+    setupMapClickHandler() {
+        if (!this.map) return;
+        this.map.on('click', () => {
+            // Only hide if currently shown
+            if (this.elements.weatherPanel && this.elements.weatherPanel.classList.contains('show')) {
+                this.hideWeather();
             }
         });
     }
@@ -956,9 +980,11 @@ class TurnByTurnNavigation {
         // Highlight first route by default
         this.highlightRoute(0);
 
-        // Show modal
-        const modal = new bootstrap.Modal(document.getElementById('routeSelectionModal'));
-        modal.show();
+        // Show right-corner popup instead of bottom-sheet modal
+        const popup = document.getElementById('routePopup');
+        if (popup) {
+            popup.classList.add('show');
+        }
     }
 
     /**
