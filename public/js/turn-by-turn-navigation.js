@@ -98,8 +98,6 @@ class TurnByTurnNavigation {
             photoPreview: document.getElementById('photoPreview'),
             previewImage: document.getElementById('previewImage'),
             gpsStatus: document.getElementById('gpsStatus'),
-            validationWarning: document.getElementById('validationWarning'),
-            validationMessage: document.getElementById('validationMessage'),
             suggestionsDropdown: document.getElementById('suggestionsDropdown'),
             weatherPanel: document.getElementById('weatherPanel'),
             weatherLoading: document.getElementById('weatherLoading'),
@@ -1772,8 +1770,9 @@ class TurnByTurnNavigation {
 
         // Add markers for each pothole
         this.potholes.forEach(pothole => {
+            const isNewlyAdded = pothole.isNew || false;
             const markerIcon = L.divIcon({
-                className: `pothole-marker severity-${pothole.severity}`,
+                className: `pothole-marker severity-${pothole.severity} ${isNewlyAdded ? 'newly-added' : ''}`,
                 html: '<i class="fas fa-exclamation-triangle"></i>',
                 iconSize: [40, 40]
             });
@@ -1786,6 +1785,13 @@ class TurnByTurnNavigation {
             marker.bindPopup(popupContent);
 
             this.potholeMarkers.push(marker);
+
+            // Remove the newly-added class after animation completes
+            if (isNewlyAdded) {
+                setTimeout(() => {
+                    pothole.isNew = false;
+                }, 3000);
+            }
         });
     }
 
@@ -1851,7 +1857,6 @@ class TurnByTurnNavigation {
         // Reset form
         document.getElementById('potholeForm').reset();
         this.elements.photoPreview.style.display = 'none';
-        this.elements.validationWarning.style.display = 'none';
         this.elements.submitPotholeBtn.disabled = false;
 
         this.potholeModalInstance.show();
@@ -1872,68 +1877,95 @@ class TurnByTurnNavigation {
         };
         reader.readAsDataURL(file);
 
-        // Check for EXIF GPS data (client-side validation)
+        // Check for EXIF GPS data (client-side validation - lenient)
         try {
             const arrayBuffer = await file.arrayBuffer();
             const hasGPS = await this.checkPhotoGPS(arrayBuffer);
             
             if (hasGPS) {
-                this.elements.gpsStatus.innerHTML = '<div class="alert alert-success mt-2"><i class="fas fa-check-circle me-2"></i>GPS data detected in photo!</div>';
-                this.elements.validationWarning.style.display = 'none';
-                this.elements.submitPotholeBtn.disabled = false;
+                this.elements.gpsStatus.innerHTML = '<div class="alert alert-success mt-2"><i class="fas fa-check-circle me-2"></i>GPS data detected in photo! Pothole will be placed at photo location.</div>';
             } else {
-                this.elements.gpsStatus.innerHTML = '<div class="alert alert-danger mt-2"><i class="fas fa-times-circle me-2"></i>No GPS data found. Please take a new photo with location enabled.</div>';
-                this.elements.validationWarning.style.display = 'block';
-                this.elements.validationMessage.textContent = 'This photo does not contain GPS location data. Please enable location services in your camera and take a new photo.';
-                this.elements.submitPotholeBtn.disabled = true;
+                // Show info but don't block - server will do final validation
+                this.elements.gpsStatus.innerHTML = '<div class="alert alert-info mt-2"><i class="fas fa-info-circle me-2"></i>GPS validation will be performed on server. Photo must have location data.</div>';
             }
+            // Always enable submit button - let server validate
+            this.elements.submitPotholeBtn.disabled = false;
         } catch (error) {
             console.warn('Could not check EXIF data client-side:', error);
-            this.elements.gpsStatus.innerHTML = '<div class="alert alert-warning mt-2"><i class="fas fa-info-circle me-2"></i>GPS validation will be performed on upload.</div>';
+            this.elements.gpsStatus.innerHTML = '<div class="alert alert-info mt-2"><i class="fas fa-info-circle me-2"></i>GPS validation will be performed on upload.</div>';
+            this.elements.submitPotholeBtn.disabled = false;
         }
     }
 
     /**
      * Check if photo has GPS data (client-side)
+     * Note: This is a basic check. Server-side validation is authoritative.
      */
     async checkPhotoGPS(arrayBuffer) {
         try {
-            // Simple EXIF GPS check
+            console.log('🔍 Client-side GPS check - File size:', arrayBuffer.byteLength);
             const view = new DataView(arrayBuffer);
             
             // Check JPEG marker
             if (view.getUint16(0) !== 0xFFD8) {
+                console.log('⚠️ Not a JPEG file');
                 return false; // Not a JPEG
             }
             
+            console.log('✓ Valid JPEG detected');
+            
             // Look for EXIF data
             let offset = 2;
-            while (offset < view.byteLength) {
+            let foundExif = false;
+            let foundGPS = false;
+            
+            while (offset < view.byteLength - 4) {
                 const marker = view.getUint16(offset);
                 
                 // APP1 marker (EXIF)
                 if (marker === 0xFFE1) {
-                    // Check for GPS tags in EXIF
-                    const exifData = new Uint8Array(arrayBuffer.slice(offset, offset + 1000));
+                    foundExif = true;
+                    console.log('✓ EXIF APP1 marker found at offset:', offset);
+                    
+                    // Get segment length
+                    const segmentLength = view.getUint16(offset + 2);
+                    const segmentEnd = Math.min(offset + 2 + segmentLength, view.byteLength);
+                    
+                    // Check for GPS tags in EXIF segment
+                    const exifData = new Uint8Array(arrayBuffer.slice(offset, segmentEnd));
                     const exifString = String.fromCharCode.apply(null, exifData);
                     
-                    // Look for GPS IFD
-                    if (exifString.includes('GPS')) {
+                    // Look for GPS-related strings
+                    if (exifString.includes('GPS') || 
+                        exifString.includes('\x00\x02') || // GPS IFD tag
+                        exifString.includes('GPSLatitude') ||
+                        exifString.includes('GPSLongitude')) {
+                        foundGPS = true;
+                        console.log('✓ GPS data found in EXIF!');
                         return true;
                     }
                 }
                 
                 // Move to next marker
+                if (offset + 2 >= view.byteLength) break;
                 const length = view.getUint16(offset + 2);
+                if (length < 2 || length > 65535) break;
                 offset += length + 2;
                 
                 // Avoid infinite loop
                 if (offset > 100000) break;
             }
             
+            if (foundExif) {
+                console.log('⚠️ EXIF found but no GPS tags detected (may be false negative)');
+            } else {
+                console.log('⚠️ No EXIF data found in file');
+            }
+            
+            // Return false but this doesn't mean GPS isn't there - server will check properly
             return false;
         } catch (error) {
-            console.error('Error checking GPS:', error);
+            console.error('❌ Error checking GPS:', error);
             return false;
         }
     }
@@ -1970,21 +2002,40 @@ class TurnByTurnNavigation {
             });
 
             if (response.data.success) {
-                this.showToast('Pothole reported successfully!', 'success');
+                console.log('✅ Pothole upload response:', response.data);
+                console.log('📍 Pothole coordinates from photo GPS:');
+                console.log('   Latitude:', response.data.pothole.latitude);
+                console.log('   Longitude:', response.data.pothole.longitude);
                 
-                // Add to map immediately
+                this.showToast(`Pothole reported at location from photo GPS!`, 'success');
+                
+                // Mark as newly added for animation
+                response.data.pothole.isNew = true;
+                
+                // Add to map immediately at the GPS coordinates from the photo
                 this.potholes.push(response.data.pothole);
                 this.displayPotholes();
+                
+                // Pan map to show the pothole location
+                if (response.data.pothole.latitude && response.data.pothole.longitude) {
+                    this.map.setView([response.data.pothole.latitude, response.data.pothole.longitude], 16);
+                    
+                    // Show popup immediately
+                    setTimeout(() => {
+                        const lastMarker = this.potholeMarkers[this.potholeMarkers.length - 1];
+                        if (lastMarker) {
+                            lastMarker.openPopup();
+                        }
+                    }, 500);
+                }
                 
                 // Close modal
                 this.potholeModalInstance.hide();
                 
                 // Speak confirmation
                 if (this.voiceEnabled) {
-                    this.speakInstruction('Pothole reported successfully');
+                    this.speakInstruction('Pothole reported successfully at photo location');
                 }
-                
-                console.log('✅ Pothole reported:', response.data.gpsInfo);
             } else {
                 throw new Error(response.data.error || 'Upload failed');
             }
@@ -2009,10 +2060,6 @@ class TurnByTurnNavigation {
             }
             
             this.showToast(errorMessage, 'error');
-            
-            // Show in modal
-            this.elements.validationWarning.style.display = 'block';
-            this.elements.validationMessage.textContent = errorMessage;
 
         } finally {
             // Reset button

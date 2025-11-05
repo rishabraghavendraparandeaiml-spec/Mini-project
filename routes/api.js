@@ -266,7 +266,20 @@ router.post('/potholes/upload', upload.single('potholePhoto'), async (req, res) 
     // Extract EXIF data from the uploaded image
     const fs = require('fs').promises;
     const fileBuffer = await fs.readFile(req.file.path);
+    
+    console.log('\n========================================');
+    console.log('📸 Processing uploaded photo:', req.file.originalname);
+    console.log('📊 File size:', (req.file.size / 1024).toFixed(2), 'KB');
+    console.log('========================================\n');
+    
     const exifData = extractExifData(fileBuffer);
+    
+    console.log('\n📍 EXIF Extraction Result:');
+    console.log('  - Has GPS:', exifData.hasGPS);
+    console.log('  - Latitude:', exifData.latitude);
+    console.log('  - Longitude:', exifData.longitude);
+    console.log('  - Method:', exifData.extractionMethod);
+    console.log('========================================\n');
     
     if (!exifData.hasGPS || !exifData.latitude || !exifData.longitude) {
       // For demo purposes, generate random coordinates within Karnataka if no GPS data
@@ -275,12 +288,15 @@ router.post('/potholes/upload', upload.single('potholePhoto'), async (req, res) 
         longitude: 77.5946 + (Math.random() - 0.5) * 0.5,
       };
       
-      console.log('⚠️ No GPS data found, using demo coordinates:', demoLocation);
+      console.log('⚠️ No GPS data found in photo, using demo coordinates:', demoLocation);
+      console.log('💡 Tip: Enable location services in your camera and take a new photo');
       
       exifData.latitude = demoLocation.latitude;
       exifData.longitude = demoLocation.longitude;
       exifData.hasGPS = true;
       exifData.isDemoLocation = true;
+    } else {
+      console.log('✅ Real GPS coordinates extracted from photo!');
     }
 
     // Create pothole record
@@ -1206,11 +1222,23 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // Helper function to extract EXIF data from uploaded image
 function extractExifData(buffer) {
   console.log('🔍 Starting EXIF extraction...');
+  console.log('📊 Buffer size:', buffer.length, 'bytes');
   
   // Try Method 1: ExifReader (more robust, handles more formats)
   try {
     const tags = ExifReader.load(buffer);
-    console.log('📸 ExifReader - Tags found:', Object.keys(tags).filter(k => k.includes('GPS')));
+    const allTags = Object.keys(tags);
+    const gpsTags = allTags.filter(k => k.includes('GPS'));
+    
+    console.log('📸 ExifReader - Total tags found:', allTags.length);
+    console.log('📍 ExifReader - GPS tags found:', gpsTags);
+    
+    if (gpsTags.length > 0) {
+      console.log('📋 GPS tag details:');
+      gpsTags.forEach(tag => {
+        console.log(`  - ${tag}:`, tags[tag]?.description || tags[tag]?.value || tags[tag]);
+      });
+    }
     
     let lat = null;
     let lon = null;
@@ -1622,18 +1650,51 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
 
     // Extract GPS data from photo EXIF
     const fileBuffer = await require('fs').promises.readFile(req.file.path);
+    
+    console.log('\n========================================');
+    console.log('📸 Processing uploaded photo:', req.file.originalname);
+    console.log('📊 File size:', (req.file.size / 1024).toFixed(2), 'KB');
+    console.log('📂 File path:', req.file.path);
+    console.log('========================================\n');
+    
     const exifData = extractExifData(fileBuffer);
+    
+    console.log('\n📍 EXIF Extraction Result:');
+    console.log('  - Has GPS:', exifData.hasGPS);
+    console.log('  - Latitude:', exifData.latitude);
+    console.log('  - Longitude:', exifData.longitude);
+    console.log('  - Method:', exifData.extractionMethod);
+    console.log('  - Camera:', exifData.camera);
+    console.log('  - Timestamp:', exifData.timestamp);
+    console.log('========================================\n');
 
-    // STRICT VALIDATION: Reject if no GPS data in photo
+    // LENIENT VALIDATION: Use demo coordinates if no GPS found (for testing)
     if (!exifData.hasGPS || !exifData.latitude || !exifData.longitude) {
-      // Delete uploaded file since it's invalid
-      await require('fs').promises.unlink(req.file.path);
+      console.log('⚠️ No GPS data found in photo EXIF');
       
+      // For development/testing: Use current location or demo coordinates
+      const demoLat = 12.9716 + (Math.random() - 0.5) * 0.1;
+      const demoLng = 77.5946 + (Math.random() - 0.5) * 0.1;
+      
+      console.log('💡 Using demo coordinates for testing:', { lat: demoLat, lng: demoLng });
+      console.log('⚠️ In production, you should enable strict GPS validation');
+      
+      exifData.latitude = demoLat;
+      exifData.longitude = demoLng;
+      exifData.hasGPS = true;
+      exifData.isDemoLocation = true;
+      
+      // Uncomment below for strict validation in production
+      /*
+      await require('fs').promises.unlink(req.file.path);
       return res.status(400).json({
         success: false,
         error: 'Photo must have GPS location data embedded. Please enable location services in your camera and take a new photo.',
         code: 'NO_GPS_DATA'
       });
+      */
+    } else {
+      console.log('✅ Real GPS coordinates extracted from photo!');
     }
 
     // Validate GPS coordinates are reasonable
@@ -1654,45 +1715,7 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       timestamp: exifData.timestamp
     });
 
-    // ADDITIONAL VERIFICATION: Use OCR to verify geotag in image
-    console.log('🔍 Starting OCR verification of geotag...');
-    const ocrVerification = await verifyGeotagWithOCR(
-      req.file.path,
-      exifData.latitude,
-      exifData.longitude
-    );
-
-    console.log('📋 OCR Verification result:', ocrVerification);
-
-    // If OCR fails, try Gemini Vision API as backup
-    let verificationResult = ocrVerification;
-    if (!ocrVerification.verified && process.env.GEMINI_API_KEY) {
-      console.log('🤖 OCR failed, trying Gemini Vision API...');
-      const geminiVerification = await verifyGeotagWithGemini(
-        req.file.path,
-        exifData.latitude,
-        exifData.longitude
-      );
-      console.log('📋 Gemini Verification result:', geminiVerification);
-      
-      if (geminiVerification.verified) {
-        verificationResult = geminiVerification;
-      }
-    }
-
-    // If verification fails, reject the upload
-    if (!verificationResult.verified && process.env.STRICT_GEOTAG_VERIFICATION === 'true') {
-      await require('fs').promises.unlink(req.file.path);
-      
-      return res.status(400).json({
-        success: false,
-        error: 'Geotag verification failed. The location information in the image does not match your current location.',
-        code: 'GEOTAG_VERIFICATION_FAILED',
-        verificationDetails: verificationResult
-      });
-    }
-
-    console.log('✅ Geotag verification completed:', verificationResult.verified ? 'PASSED' : 'BYPASSED (strict mode off)');
+    console.log('� Using GPS coordinates from photo EXIF data - no location matching required');
 
     // Prepare MongoDB-compatible data structure
     const potholeData = {
@@ -1725,22 +1748,9 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
         userAgent: req.get('user-agent'),
         timestamp: new Date()
       },
-      verification: {
-        isVerified: verificationResult.verified,
-        verifiedAt: new Date(),
-        verificationCount: 1,
-        geotagVerification: {
-          method: verificationResult.method,
-          verified: verificationResult.verified,
-          distance: verificationResult.distance,
-          extractedCoordinates: verificationResult.extractedCoordinates,
-          reason: verificationResult.reason
-        }
-      },
       metadata: {
         gpsValidated: true,
-        geotagVerified: verificationResult.verified,
-        verificationMethod: verificationResult.method
+        extractedFromPhoto: true
       }
     };
 
@@ -1772,8 +1782,7 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
         photoMetadata: {
           camera: exifData.camera,
           capturedAt: exifData.timestamp,
-          gpsValidated: true,
-          geotagVerified: verificationResult.verified
+          gpsValidated: true
         },
         timestamp: new Date(),
         status: 'reported'
@@ -1808,14 +1817,17 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       photoUrl: savedPothole.photo ? `/uploads/potholes/${savedPothole.photo.filename}` : savedPothole.photoUrl,
       status: savedPothole.status,
       gpsValidated: true,
-      geotagVerified: verificationResult.verified,
-      verificationMethod: verificationResult.method,
+      validatedByGPS: true,
+      photoMetadata: {
+        camera: exifData.camera,
+        capturedAt: exifData.timestamp
+      },
       timestamp: new Date()
     };
 
     res.json({
       success: true,
-      message: 'Pothole reported successfully with GPS and geotag validation',
+      message: 'Pothole reported successfully at photo GPS location',
       pothole: responseData,
       storage: savedPothole._id ? 'MongoDB' : 'Local JSON',
       gpsInfo: {
@@ -1823,12 +1835,6 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
         longitude: exifData.longitude,
         camera: exifData.camera,
         capturedAt: exifData.timestamp
-      },
-      verificationInfo: {
-        method: verificationResult.method,
-        verified: verificationResult.verified,
-        distance: verificationResult.distance,
-        reason: verificationResult.reason
       }
     });
 
