@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Routing Dashboard</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <i class="fas fa-route me-2"></i>
+                Routing Dashboard
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <button class="btn btn-outline-light me-2" id="planRouteBtn">
+                            <i class="fas fa-map-marked-alt me-1"></i> Plan Route
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="btn btn-outline-light me-2" id="showAlertsBtn">
+                            <i class="fas fa-exclamation-triangle me-1"></i> Weather Alerts
+                        </button>
+                    </li>
+
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container-fluid p-0">
+        <div class="row g-0">
+            <!-- Sidebar Panel -->
+            <div class="col-lg-4 col-xl-3" id="sidebarPanel">
+                <div class="sidebar-content p-3">
+                    <!-- Route Planning Section -->
+                    <div class="card mb-3" id="routePlanningCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">
+                                <i class="fas fa-route me-2"></i>Route Planner
+                            </h5>
+                            <button class="btn btn-sm btn-outline-secondary" id="toggleSidebar">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <!-- Turn-by-Turn Navigation Interface -->
+                            <div class="navigation-interface">
+                                <div class="mb-3">
+                                    <label for="destination" class="form-label">
+                                        <i class="fas fa-navigation me-1 text-primary"></i>Where to?
+                                    </label>
+                                    <input type="text" class="form-control form-control-lg" id="destination" 
+                                           placeholder="Search for a destination...">
+                                </div>
+                                
+                                <div class="d-grid mb-3">
+                                    <button class="btn btn-primary btn-lg" id="startNavigationBtn">
+                                        <i class="fas fa-location-arrow me-2"></i>Start Navigation
+                                    </button>
+                                </div>
+
+                                <div class="quick-destinations mb-3">
+                                    <label class="form-label">
+                                        <i class="fas fa-star me-1"></i>Quick Destinations
+                                    </label>
+                                    <div class="row g-2">
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary btn-sm w-100 quick-dest" data-dest="Bangalore City Centre">
+                                                <i class="fas fa-building me-1"></i>City Centre
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary btn-sm w-100 quick-dest" data-dest="Kempegowda International Airport">
+                                                <i class="fas fa-plane me-1"></i>Airport
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary btn-sm w-100 quick-dest" data-dest="Bangalore Railway Station">
+                                                <i class="fas fa-train me-1"></i>Railway
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary btn-sm w-100 quick-dest" data-dest="Lalbagh Botanical Garden">
+                                                <i class="fas fa-tree me-1"></i>Lalbagh
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Route Summary Section -->
+                    <div class="card mb-3 d-none" id="routeSummaryCard">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-info-circle me-2"></i>Route Summary
+                            </h6>
+                        </div>
+                        <div class="card-body" id="routeSummaryContent">
+                            <!-- Route details will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Turn-by-Turn Navigation Panel -->
+                    <div class="card mb-3 d-none" id="navigationPanel">
+                        <div class="card-header bg-primary text-white">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-directions me-2"></i>Navigation Active
+                                </h6>
+                                <button class="btn btn-sm btn-outline-light" id="stopNavigationBtn">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <!-- Current Instruction -->
+                            <div class="current-instruction p-3 bg-light border-bottom">
+                                <div class="d-flex align-items-center">
+                                    <div class="instruction-icon me-3">
+                                        <i class="fas fa-arrow-up text-primary" style="font-size: 2rem;"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="instruction-text h6 mb-1" id="currentInstruction">
+                                            Continue straight for 1.2 km
+                                        </div>
+                                        <div class="instruction-road text-muted small" id="currentRoad">
+                                            on MG Road
+                                        </div>
+                                    </div>
+                                    <div class="instruction-distance">
+                                        <span class="badge bg-primary" id="instructionDistance">1.2 km</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Progress Bar -->
+                            <div class="progress" style="height: 4px;">
+                                <div class="progress-bar bg-primary" id="routeProgress" role="progressbar" style="width: 25%"></div>
+                            </div>
+
+                            <!-- Navigation Stats -->
+                            <div class="navigation-stats p-3 border-bottom">
+                                <div class="row text-center">
+                                    <div class="col-4">
+                                        <div class="small text-muted">ETA</div>
+                                        <div class="fw-bold" id="eta">15 min</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="small text-muted">Distance</div>
+                                        <div class="fw-bold" id="remainingDistance">8.5 km</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="small text-muted">Speed</div>
+                                        <div class="fw-bold" id="currentSpeed">45 km/h</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Next Instructions -->
+                            <div class="next-instructions p-3">
+                                <div class="small text-muted mb-2">NEXT INSTRUCTIONS</div>
+                                <div id="nextInstructionsList">
+                                    <div class="next-instruction mb-2">
+                                        <i class="fas fa-arrow-right text-muted me-2"></i>
+                                        <small>Turn right onto Brigade Road in 800m</small>
+                                    </div>
+                                    <div class="next-instruction mb-2">
+                                        <i class="fas fa-arrow-left text-muted me-2"></i>
+                                        <small>Turn left onto Commercial Street in 1.5km</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Location Panel -->
+                    <div class="card mb-3" id="locationPanel">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-crosshairs me-2 text-success"></i>Live Location
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="location-info">
+                                <div class="mb-2">
+                                    <strong>Current Position:</strong>
+                                    <div class="text-muted small" id="currentCoordinates">
+                                        Getting location...
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <strong>Address:</strong>
+                                    <div class="text-muted small" id="currentAddress">
+                                        Locating address...
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <strong>Accuracy:</strong>
+                                    <span class="badge bg-success" id="locationAccuracy">±0m</span>
+                                </div>
+                                <div class="d-grid">
+                                    <button class="btn btn-outline-primary btn-sm" id="refreshLocationBtn">
+                                        <i class="fas fa-sync me-1"></i>Refresh Location
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pothole Reporting Section -->
+                    <div class="card mb-3" id="potholeCard">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-exclamation-triangle me-2 text-warning"></i>Report Pothole
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info alert-sm mb-3">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Help improve road conditions by reporting potholes with GPS-tagged photos
+                            </div>
+                            
+                            <form id="potholeForm">
+                                <div class="mb-3">
+                                    <label for="potholePhoto" class="form-label">
+                                        <i class="fas fa-camera me-1"></i>Photo with GPS Location
+                                    </label>
+                                    <input type="file" class="form-control" id="potholePhoto" 
+                                           name="potholePhoto" accept="image/*" capture="environment" required>
+                                    <div class="form-text">
+                                        Photo must contain GPS location data. Enable location services on your device.
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="potholeSeverity" class="form-label">
+                                        <i class="fas fa-thermometer-half me-1"></i>Severity Level
+                                    </label>
+                                    <select class="form-select" id="potholeSeverity" name="severity" required>
+                                        <option value="">Select severity...</option>
+                                        <option value="minor">🟢 Minor - Small crack or minor depression</option>
+                                        <option value="moderate">🟡 Moderate - Noticeable hole, affects driving</option>
+                                        <option value="major">🟠 Major - Large hole, dangerous for vehicles</option>
+                                        <option value="severe">🔴 Severe - Major road damage, hazardous</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="potholeDescription" class="form-label">
+                                        <i class="fas fa-comment me-1"></i>Description (Optional)
+                                    </label>
+                                    <textarea class="form-control" id="potholeDescription" 
+                                              name="description" rows="3" placeholder="Additional details about the pothole..."></textarea>
+                                </div>
+
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-warning" id="uploadPotholeBtn">
+                                        <i class="fas fa-upload me-2"></i>Upload Pothole Report
+                                    </button>
+                                </div>
+                            </form>
+
+                            <!-- Upload Progress -->
+                            <div class="mt-3 d-none" id="uploadProgress">
+                                <div class="progress">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <div class="text-center mt-2">
+                                    <small class="text-muted">Processing image and extracting GPS data...</small>
+                                </div>
+                            </div>
+
+                            <!-- Recent Uploads -->
+                            <div class="mt-3 d-none" id="recentUploads">
+                                <h6 class="mb-2">
+                                    <i class="fas fa-history me-1"></i>Recent Reports
+                                </h6>
+                                <div id="recentUploadsList">
+                                    <!-- Recent uploads will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Weather Section -->
+                    <div class="card mb-3 d-none" id="weatherCard">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-cloud me-2"></i>Weather Information
+                            </h6>
+                        </div>
+                        <div class="card-body" id="weatherContent">
+                            <!-- Weather details will be populated here -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Map Container -->
+            <div class="col-lg-8 col-xl-9" id="mapContainer">
+                <div id="map"></div>
+                
+                <!-- Map Controls -->
+                <div class="map-controls">
+                    <button class="btn btn-primary btn-sm shadow" id="locateBtn" title="Find my precise location">
+                        <i class="fas fa-location-arrow"></i>
+                        <span class="d-none d-md-inline ms-1">Locate Me</span>
+                    </button>
+                    <div class="btn-group mt-2" role="group">
+                        <button class="btn btn-success btn-sm shadow dropdown-toggle" data-bs-toggle="dropdown" title="Alternative locations">
+                            <i class="fas fa-map-marked-alt"></i>
+                            <span class="d-none d-md-inline ms-1">Alt Location</span>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="dashboard.useNetworkLocation()">
+                                <i class="fas fa-wifi me-2"></i>Network Location
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="dashboard.useIPLocation()">
+                                <i class="fas fa-globe me-2"></i>IP Location
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="dashboard.useTestLocation()">
+                                <i class="fas fa-flask me-2"></i>Test Location
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="alternative-location.html" target="_blank">
+                                <i class="fas fa-external-link-alt me-2"></i>Location Tool
+                            </a></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-info btn-sm shadow mt-2" id="locationDiagnosticsBtn" title="Run location diagnostics">
+                        <i class="fas fa-stethoscope"></i>
+                        <span class="d-none d-md-inline ms-1">Diagnose</span>
+                    </button>
+                    <button class="btn btn-light btn-sm shadow mt-2" id="clearMapBtn" title="Clear map">
+                        <i class="fas fa-eraser"></i>
+                    </button>
+                </div>
+
+                <!-- Loading Overlay -->
+                <div class="loading-overlay d-none" id="loadingOverlay">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div class="mt-2">Calculating route...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weather Alerts Modal -->
+    <div class="modal fade" id="weatherAlertsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                        Weather Alerts
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="weatherAlertsContent">
+                    <!-- Weather alerts will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="alertToast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">
+                <!-- Toast message will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Axios for HTTP requests -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script src="js/main.js"></script>
+</body>
+</html>

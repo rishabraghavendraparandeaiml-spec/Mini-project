@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geotag Verification - How It Works</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .info-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            color: #667eea;
+            font-weight: bold;
+        }
+        .feature-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-left: 5px solid #667eea;
+        }
+        .feature-icon {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .alert-custom {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="info-container">
+        <div class="header">
+            <i class="fas fa-shield-alt feature-icon"></i>
+            <h1>Advanced Geotag Verification</h1>
+            <p class="lead">How we ensure authentic pothole reports</p>
+        </div>
+
+        <div class="feature-card">
+            <h3><i class="fas fa-camera"></i> EXIF GPS Validation</h3>
+            <p>When you upload a photo, we first extract the GPS coordinates embedded in the image's EXIF data. This ensures the photo was taken at the reported location.</p>
+        </div>
+
+        <div class="feature-card">
+            <h3><i class="fas fa-search"></i> OCR Text Extraction</h3>
+            <p>We use <strong>Tesseract.js OCR</strong> to scan the image for any visible text showing location information, timestamps, or GPS coordinates that might be watermarked or overlaid on the photo.</p>
+        </div>
+
+        <div class="feature-card">
+            <h3><i class="fas fa-robot"></i> AI Vision Analysis (Gemini)</h3>
+            <p>As a backup verification method, we use <strong>Google's Gemini Vision API</strong> to analyze the image with AI, detecting any location stamps, geotags, or contextual information that confirms the location.</p>
+        </div>
+
+        <h2 class="mt-5 mb-4">Verification Process</h2>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">1</span>
+            <div>
+                <h5>Photo Upload</h5>
+                <p>User uploads a photo with GPS-enabled camera</p>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">2</span>
+            <div>
+                <h5>EXIF Extraction</h5>
+                <p>System extracts GPS coordinates from EXIF metadata</p>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">3</span>
+            <div>
+                <h5>OCR Verification</h5>
+                <p>Tesseract scans image for visible location text</p>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">4</span>
+            <div>
+                <h5>AI Analysis (if needed)</h5>
+                <p>Gemini Vision API analyzes image for geotag verification</p>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">5</span>
+            <div>
+                <h5>Location Comparison</h5>
+                <p>Compares extracted coordinates with user's actual location (within 100m tolerance)</p>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-start mb-3">
+            <span class="step-number">6</span>
+            <div>
+                <h5>Approval/Rejection</h5>
+                <p>Photo is approved if location matches, rejected if verification fails</p>
+            </div>
+        </div>
+
+        <div class="alert-custom">
+            <h5><i class="fas fa-info-circle"></i> Configuration</h5>
+            <p class="mb-2"><strong>Strict Mode:</strong> Set <code>STRICT_GEOTAG_VERIFICATION=true</code> in .env to enforce strict verification (reject photos that fail OCR/AI checks)</p>
+            <p class="mb-0"><strong>Lenient Mode:</strong> Set to <code>false</code> to only require EXIF GPS data (OCR/AI verification is performed but not enforced)</p>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="/navigation.html" class="btn btn-primary btn-lg">
+                <i class="fas fa-arrow-left me-2"></i>Back to Navigation
+            </a>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,122 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (KEEP .env.example for reference)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env.backup
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+data/analytics.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build outputs
+build/
+dist/
+
+# Temporary files
+tmp/
+temp/
+
+# Uploaded files and user data
+uploads/
+public/uploads/
+data/
+data/potholes.json
+data/analytics.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Test files
+test-uploads/
+test-results/
+
+# Cache files
+.cache/
+*.cache
+.parcel-cache/
+
+# Package manager lock files (optional - uncomment if you want to ignore them)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Local development files
+.local/
+*.local
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# Documentation build
+docs/_build/
+site/
+
+# Windows batch files (optional - uncomment if you don't want to share them)
+# install.bat
+# run.bat
+# start.bat
+
+# Sample/test files (uncomment if you don't want to share)
+# sample-pothole.jpg
+# sample-pothole.txt
+
+# User-specific configuration
+config.local.json
+settings.local.json
+
+# Session files
+sessions/
+*.session
+
+# PM2 process manager
+.pm2/
+ecosystem.config.js
+
+# SSL certificates (if any)
+*.pem
+*.key
+*.crt
+*.pfx
+ssl/
+certs/
