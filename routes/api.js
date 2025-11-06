@@ -18,20 +18,22 @@ const { v4: uuidv4 } = require('uuid');
 const { Pothole } = require('../models/Pothole');
 const Tesseract = require('tesseract.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const mongoose = require('mongoose');
+const { GridFSBucket } = require('mongodb');
 
 const router = express.Router();
 
-// Configure multer for photo uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '..', 'uploads', 'potholes'));
-  },
-  filename: (req, file, cb) => {
-    const uniqueId = uuidv4();
-    const extension = path.extname(file.originalname).toLowerCase();
-    cb(null, `pothole_${uniqueId}_${Date.now()}${extension}`);
-  }
+// GridFS bucket for storing photos in MongoDB
+let gridFSBucket;
+mongoose.connection.once('open', () => {
+  gridFSBucket = new GridFSBucket(mongoose.connection.db, {
+    bucketName: 'potholePhotos'
+  });
+  console.log('✅ GridFS bucket initialized for photo storage');
 });
+
+// Configure multer to use memory storage (we'll upload to GridFS instead of disk)
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
@@ -46,6 +48,39 @@ const upload = multer({
     cb(null, true);
   }
 });
+
+/**
+ * Upload file buffer to GridFS
+ * @param {Buffer} buffer - File buffer
+ * @param {Object} metadata - File metadata
+ * @returns {Promise<string>} - GridFS file ID
+ */
+async function uploadToGridFS(buffer, metadata) {
+  return new Promise((resolve, reject) => {
+    if (!gridFSBucket) {
+      return reject(new Error('GridFS not initialized'));
+    }
+
+    const uploadStream = gridFSBucket.openUploadStream(metadata.filename, {
+      contentType: metadata.mimetype,
+      metadata: {
+        originalName: metadata.originalName,
+        size: metadata.size,
+        uploadDate: new Date(),
+        ...metadata.extra
+      }
+    });
+
+    uploadStream.on('error', reject);
+    uploadStream.on('finish', () => {
+      console.log('✅ Photo uploaded to GridFS:', uploadStream.id);
+      resolve(uploadStream.id.toString());
+    });
+
+    uploadStream.write(buffer);
+    uploadStream.end();
+  });
+}
 
 // In-memory analytics storage (in production, use a proper database)
 let analyticsData = {
@@ -1648,13 +1683,13 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       });
     }
 
-    // Extract GPS data from photo EXIF
-    const fileBuffer = await require('fs').promises.readFile(req.file.path);
+    // Extract GPS data from photo EXIF (file is in memory buffer)
+    const fileBuffer = req.file.buffer;
     
     console.log('\n========================================');
     console.log('📸 Processing uploaded photo:', req.file.originalname);
     console.log('📊 File size:', (req.file.size / 1024).toFixed(2), 'KB');
-    console.log('📂 File path:', req.file.path);
+    console.log('📂 Storage: MongoDB GridFS');
     console.log('========================================\n');
     
     const exifData = extractExifData(fileBuffer);
@@ -1717,6 +1752,32 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
 
     console.log('� Using GPS coordinates from photo EXIF data - no location matching required');
 
+    // Upload photo to GridFS
+    let gridFSFileId;
+    try {
+      const uniqueFilename = `pothole_${uuidv4()}_${Date.now()}${path.extname(req.file.originalname)}`;
+      gridFSFileId = await uploadToGridFS(fileBuffer, {
+        filename: uniqueFilename,
+        originalName: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        extra: {
+          latitude: exifData.latitude,
+          longitude: exifData.longitude,
+          camera: exifData.camera,
+          capturedAt: exifData.timestamp
+        }
+      });
+      console.log('✅ Photo uploaded to MongoDB GridFS with ID:', gridFSFileId);
+    } catch (gridFSError) {
+      console.error('❌ GridFS upload failed:', gridFSError.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload photo to database',
+        code: 'GRIDFS_UPLOAD_FAILED'
+      });
+    }
+
     // Prepare MongoDB-compatible data structure
     const potholeData = {
       id: Date.now().toString(),
@@ -1725,11 +1786,10 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
         coordinates: [exifData.longitude, exifData.latitude] // MongoDB format: [lng, lat]
       },
       photo: {
-        filename: req.file.filename,
+        gridFSFileId: gridFSFileId,
         originalName: req.file.originalname,
         mimetype: req.file.mimetype,
-        size: req.file.size,
-        path: req.file.path
+        size: req.file.size
       },
       exifData: {
         latitude: exifData.latitude,
@@ -1814,7 +1874,7 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       longitude: exifData.longitude,
       severity: savedPothole.severity,
       description: savedPothole.description,
-      photoUrl: savedPothole.photo ? `/uploads/potholes/${savedPothole.photo.filename}` : savedPothole.photoUrl,
+      photoUrl: `/api/pothole/photo/${gridFSFileId}`,
       status: savedPothole.status,
       gpsValidated: true,
       validatedByGPS: true,
