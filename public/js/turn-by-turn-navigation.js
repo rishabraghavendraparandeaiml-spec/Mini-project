@@ -10,6 +10,8 @@ class TurnByTurnNavigation {
         this.currentRoute = null;
         this.routeLine = null;
         this.routeOutline = null;
+        this.alternativeRouteLines = [];
+        this.alternativeRouteOutlines = [];
         
         // Location tracking
         this.currentPosition = null;
@@ -831,15 +833,26 @@ class TurnByTurnNavigation {
     showRouteSelectionModal() {
         console.log(`📍 Showing ${this.routeAlternatives.length} route alternatives`);
         
+        // HARD LIMIT: Ensure we never show more than 2 routes
+        if (this.routeAlternatives.length > 2) {
+            console.log(`⚠️ Warning: ${this.routeAlternatives.length} routes in array, limiting to 2`);
+            this.routeAlternatives = this.routeAlternatives.slice(0, 2);
+        }
+        
+        // If only one route, no need to show modal
+        if (this.routeAlternatives.length === 1) {
+            console.log('⚠️ Only one route available - skipping selection modal');
+            return;
+        }
+        
         const container = document.getElementById('routeOptionsContainer');
         container.innerHTML = '';
 
-        // Store all preview lines for cleanup
-        this.allRoutePreviewLines = [];
-        this.allRoutePreviewOutlines = [];
-
-        // Route colors for different alternatives
-        const routeColors = ['#4285F4', '#34A853', '#FBBC04']; // Blue, Green, Yellow
+        // Route colors: Route 1 (blue), Route 2 (green)
+        const routeColors = [
+            { main: '#4285F4', name: 'Route 1' },      // Blue - fastest
+            { main: '#34A853', name: 'Route 2' }       // Green - alternative
+        ];
 
         // Find fastest and shortest routes
         let fastestIndex = 0;
@@ -858,42 +871,7 @@ class TurnByTurnNavigation {
             }
         });
 
-        // Draw ALL routes on map first with 60% opacity for map visibility
-        this.routeAlternatives.forEach((alt, index) => {
-            const coordinates = alt.geometry.map(coord => [coord[1], coord[0]]);
-            const color = routeColors[index] || '#888888';
-            
-            // Draw outline with reduced opacity
-            const outline = L.polyline(coordinates, {
-                color: 'white',
-                weight: 7,
-                opacity: 0.25,
-                interactive: false
-            }).addTo(this.map);
-            
-            // Draw route line with 40% opacity
-            const line = L.polyline(coordinates, {
-                color: color,
-                weight: 4,
-                opacity: 0.4,
-                interactive: false
-            }).addTo(this.map);
-            
-            this.allRoutePreviewLines.push(line);
-            this.allRoutePreviewOutlines.push(outline);
-        });
-
-        // Fit map to show all routes
-        if (this.routeAlternatives.length > 0) {
-            const allCoordinates = this.routeAlternatives[0].geometry.map(coord => [coord[1], coord[0]]);
-            const bounds = L.latLngBounds(allCoordinates);
-            this.map.fitBounds(bounds, { 
-                padding: [100, 100],
-                maxZoom: 14
-            });
-        }
-
-        // Create route option cards
+        // Create route option cards (maximum 2)
         this.routeAlternatives.forEach((alt, index) => {
             const card = document.createElement('div');
             card.className = 'route-option-card';
@@ -901,7 +879,7 @@ class TurnByTurnNavigation {
 
             const isFastest = index === fastestIndex;
             const isShortest = index === shortestIndex;
-            const color = routeColors[index] || '#888888';
+            const colors = routeColors[index] || { main: '#888888', name: `Route ${index + 1}` };
             
             let badge = '';
             if (isFastest && isShortest) {
@@ -910,18 +888,29 @@ class TurnByTurnNavigation {
                 badge = '<span class="route-option-badge fastest">Fastest</span>';
             } else if (isShortest) {
                 badge = '<span class="route-option-badge shortest">Shortest</span>';
+            } else {
+                badge = '<span class="route-option-badge alternative">Alternative</span>';
             }
 
             const durationMin = Math.round(alt.duration / 60);
             const distanceKm = (alt.distance / 1000).toFixed(1);
             const eta = new Date(Date.now() + alt.duration * 1000);
             const etaStr = eta.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            
+            // Calculate time/distance difference from fastest route
+            let comparison = '';
+            if (index !== fastestIndex) {
+                const timeDiff = Math.round((alt.duration - this.routeAlternatives[fastestIndex].duration) / 60);
+                if (timeDiff > 0) {
+                    comparison = `<span class="route-comparison">+${timeDiff} min</span>`;
+                }
+            }
 
             card.innerHTML = `
                 <div class="route-option-header">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div class="route-color-indicator" style="background-color: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.3);"></div>
-                        <div class="route-option-title">Route ${index + 1}</div>
+                        <div class="route-color-indicator" style="background-color: ${colors.main}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.3);"></div>
+                        <div class="route-option-title">${colors.name}</div>
                     </div>
                     ${badge}
                 </div>
@@ -929,6 +918,7 @@ class TurnByTurnNavigation {
                     <div class="route-detail-item">
                         <i class="fas fa-clock"></i>
                         <span class="route-detail-value">${durationMin} min</span>
+                        ${comparison}
                     </div>
                     <div class="route-detail-item">
                         <i class="fas fa-road"></i>
@@ -945,41 +935,24 @@ class TurnByTurnNavigation {
             if (index === 0) {
                 card.classList.add('selected');
                 this.selectedRouteIndex = 0;
-                document.getElementById('confirmRouteBtn').disabled = false;
+                const confirmBtn = document.getElementById('confirmRouteBtn');
+                if (confirmBtn) confirmBtn.disabled = false;
             }
 
-            // Click handler - highlight selected route
+            // Click handler - select route immediately
             card.addEventListener('click', () => {
                 document.querySelectorAll('.route-option-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
-                this.selectedRouteIndex = index;
-                document.getElementById('confirmRouteBtn').disabled = false;
-
-                // Highlight selected route
-                this.highlightRoute(index);
-            });
-
-            // Hover handler - temporarily highlight route
-            card.addEventListener('mouseenter', () => {
-                this.highlightRoute(index, true);
-            });
-
-            card.addEventListener('mouseleave', () => {
-                // Restore selected route highlight
-                const selectedCard = document.querySelector('.route-option-card.selected');
-                if (selectedCard) {
-                    const selectedIndex = parseInt(selectedCard.dataset.routeIndex);
-                    this.highlightRoute(selectedIndex);
-                }
+                this.selectRoute(index);
+                
+                const confirmBtn = document.getElementById('confirmRouteBtn');
+                if (confirmBtn) confirmBtn.disabled = false;
             });
 
             container.appendChild(card);
         });
 
-        // Highlight first route by default
-        this.highlightRoute(0);
-
-        // Show right-corner popup instead of bottom-sheet modal
+        // Show right-corner popup
         const popup = document.getElementById('routePopup');
         if (popup) {
             popup.classList.add('show');
@@ -1162,7 +1135,9 @@ class TurnByTurnNavigation {
      */
     async calculateRoute(startLat, startLng, endLat, endLng) {
         const profile = this.elements.routeType.value || 'driving';
-        const url = `https://router.project-osrm.org/route/v1/${profile}/${startLng},${startLat};${endLng},${endLat}?overview=full&steps=true&geometries=geojson`;
+        
+        // Request multiple alternatives from OSRM
+        const url = `https://router.project-osrm.org/route/v1/${profile}/${startLng},${startLat};${endLng},${endLat}?overview=full&steps=true&geometries=geojson&alternatives=true`;
 
         try {
             const response = await axios.get(url);
@@ -1171,53 +1146,260 @@ class TurnByTurnNavigation {
                 throw new Error('Route calculation failed');
             }
 
-            const route = response.data.routes[0];
+            const routes = response.data.routes;
+            console.log(`📍 OSRM returned ${routes.length} route(s)`);
             
-            // Store route data
-            this.totalDistance = route.distance;
-            this.totalDuration = route.duration;
-            this.remainingDistance = route.distance;
-            this.routeGeometry = route.geometry.coordinates;
-
-            // Extract steps with instructions
-            this.steps = [];
-            let distanceOffset = 0;
-
-            route.legs[0].steps.forEach((step, index) => {
-                const instruction = this.formatInstruction(step);
+            // Store all route alternatives
+            this.routeAlternatives = [];
+            
+            // Process each route
+            routes.forEach((route, index) => {
+                console.log(`   Route ${index + 1}: ${(route.distance/1000).toFixed(1)}km, ${Math.round(route.duration/60)}min, ${route.geometry.coordinates.length} points`);
                 
-                this.steps.push({
-                    instruction: instruction,
-                    distance: step.distance,
-                    duration: step.duration,
-                    maneuver: step.maneuver,
-                    name: step.name || 'Unnamed road',
-                    distanceFromStart: distanceOffset,
-                    location: step.maneuver.location
+                const steps = [];
+                let distanceOffset = 0;
+
+                route.legs[0].steps.forEach((step) => {
+                    const instruction = this.formatInstruction(step);
+                    
+                    steps.push({
+                        instruction: instruction,
+                        distance: step.distance,
+                        duration: step.duration,
+                        maneuver: step.maneuver,
+                        name: step.name || 'Unnamed road',
+                        distanceFromStart: distanceOffset,
+                        location: step.maneuver.location
+                    });
+
+                    distanceOffset += step.distance;
                 });
 
-                distanceOffset += step.distance;
+                this.routeAlternatives.push({
+                    geometry: route.geometry.coordinates,
+                    distance: route.distance,
+                    duration: route.duration,
+                    steps: steps,
+                    index: index
+                });
             });
+            
+            // Filter out overlapping routes - only keep truly unique routes
+            const uniqueRoutes = this.filterNonOverlappingRoutes(this.routeAlternatives);
+            
+            console.log(`\n✅ ${uniqueRoutes.length} unique non-overlapping route(s) after filtering`);
+            
+            // HARD LIMIT: Maximum 2 routes only - slice to ensure we never show more than 2
+            this.routeAlternatives = uniqueRoutes.slice(0, 2);
+            
+            console.log(`🔒 Final routes after hard limit: ${this.routeAlternatives.length} route(s)`);
+            
+            // Log final route selection
+            if (this.routeAlternatives.length === 1) {
+                console.log('📍 Showing 1 route (no alternatives available)');
+            } else {
+                console.log('📍 Showing exactly 2 routes');
+            }
+            
+            // Select the first (fastest) route by default
+            this.selectedRouteIndex = 0;
+            const selectedRoute = this.routeAlternatives[0];
+            
+            // Store selected route data
+            this.totalDistance = selectedRoute.distance;
+            this.totalDuration = selectedRoute.duration;
+            this.remainingDistance = selectedRoute.distance;
+            this.routeGeometry = selectedRoute.geometry;
+            this.steps = selectedRoute.steps;
 
-            // Draw route on map
-            this.drawRoute();
+            // Draw all routes on map with different colors
+            this.drawAllRoutes();
 
-            // Fit map to route with better padding to ensure full route visibility
-            const bounds = L.latLngBounds(
-                this.routeGeometry.map(coord => [coord[1], coord[0]])
-            );
-            // Increased padding to account for UI elements (turn panel, weather, etc.)
+            // Fit map to show all routes
+            const allCoordinates = [];
+            this.routeAlternatives.forEach(route => {
+                allCoordinates.push(...route.geometry.map(coord => [coord[1], coord[0]]));
+            });
+            
+            const bounds = L.latLngBounds(allCoordinates);
             this.map.fitBounds(bounds, { 
-                padding: [150, 100],  // More padding: [top/bottom, left/right]
-                maxZoom: 15           // Limit zoom for better overview
+                padding: [150, 100],
+                maxZoom: 15
             });
 
-            console.log(`✅ Route calculated: ${(this.totalDistance/1000).toFixed(1)}km, ${Math.round(this.totalDuration/60)}min`);
+            // Show route selection modal if we have multiple routes
+            if (this.routeAlternatives.length > 1) {
+                this.showRouteSelectionModal();
+            }
+
+            console.log(`✅ Routes calculated: Primary ${(this.totalDistance/1000).toFixed(1)}km, ${Math.round(this.totalDuration/60)}min`);
 
         } catch (error) {
             console.error('Route calculation error:', error);
             throw error;
         }
+    }
+    
+    /**
+     * Filter out overlapping routes - keep only routes with significantly different paths
+     */
+    filterNonOverlappingRoutes(routes) {
+        if (routes.length <= 1) return routes;
+        
+        const uniqueRoutes = [routes[0]]; // Always keep the fastest route
+        
+        for (let i = 1; i < routes.length; i++) {
+            const candidate = routes[i];
+            let isUnique = true;
+            
+            // Check against all already selected unique routes
+            for (const uniqueRoute of uniqueRoutes) {
+                const overlapPercentage = this.calculateRouteOverlap(candidate.geometry, uniqueRoute.geometry);
+                
+                // Very strict: If more than 40% overlap, consider it the same route
+                // This ensures routes are VERY different
+                if (overlapPercentage > 0.40) {
+                    console.log(`   Route ${i + 1} has ${(overlapPercentage * 100).toFixed(0)}% overlap - REJECTED (need <40% overlap)`);
+                    isUnique = false;
+                    break;
+                }
+            }
+            
+            if (isUnique) {
+                uniqueRoutes.push(candidate);
+                const diff = ((1 - this.calculateRouteOverlap(candidate.geometry, routes[0].geometry)) * 100).toFixed(0);
+                console.log(`   Route ${i + 1} is UNIQUE - ${diff}% different from Route 1 - ACCEPTED`);
+            }
+            
+            // Stop at 2 unique routes maximum
+            if (uniqueRoutes.length >= 2) {
+                console.log(`   ✅ Found 2 truly different routes - stopping search`);
+                break;
+            }
+        }
+        
+        // If we couldn't find a second unique route, only return the first one
+        if (uniqueRoutes.length === 1) {
+            console.log(`   ⚠️ Could not find a second route with <40% overlap - showing only 1 route`);
+        }
+        
+        return uniqueRoutes;
+    }
+    
+    /**
+     * Calculate overlap percentage between two routes
+     */
+    calculateRouteOverlap(route1, route2) {
+        const samplePoints = 60; // Maximum sample points for highest accuracy
+        const threshold = 30; // 30 meters - extremely strict proximity check
+        
+        let matchingPoints = 0;
+        
+        // Sample points from route1
+        for (let i = 0; i < samplePoints; i++) {
+            const index1 = Math.floor((route1.length - 1) * i / samplePoints);
+            const point1 = route1[index1];
+            
+            // Check if this point is close to any point in route2
+            let hasMatch = false;
+            for (let j = 0; j < samplePoints; j++) {
+                const index2 = Math.floor((route2.length - 1) * j / samplePoints);
+                const point2 = route2[index2];
+                
+                const distance = this.calculateDistance(
+                    point1[1], point1[0],
+                    point2[1], point2[0]
+                );
+                
+                if (distance < threshold) {
+                    hasMatch = true;
+                    break;
+                }
+            }
+            
+            if (hasMatch) matchingPoints++;
+        }
+        
+        return matchingPoints / samplePoints;
+    }
+    
+    /**
+     * Draw all alternative routes on the map
+     */
+    drawAllRoutes() {
+        // Clear existing route lines
+        if (this.routeLine) this.map.removeLayer(this.routeLine);
+        if (this.routeOutline) this.map.removeLayer(this.routeOutline);
+        if (this.alternativeRouteLines) {
+            this.alternativeRouteLines.forEach(line => this.map.removeLayer(line));
+        }
+        if (this.alternativeRouteOutlines) {
+            this.alternativeRouteOutlines.forEach(line => this.map.removeLayer(line));
+        }
+        
+        this.alternativeRouteLines = [];
+        this.alternativeRouteOutlines = [];
+        
+        // HARD LIMIT: Maximum 2 routes
+        const routesToDraw = this.routeAlternatives.slice(0, 2);
+        
+        // Route colors: Route 1 (blue), Route 2 (green) - only 2 routes
+        const routeColors = [
+            { main: '#4285F4', outline: '#FFFFFF', name: 'Route 1' },      // Blue
+            { main: '#34A853', outline: '#FFFFFF', name: 'Route 2' }       // Green
+        ];
+        
+        console.log(`🎨 Drawing ${routesToDraw.length} route(s) on map`);
+        
+        // Draw each route
+        routesToDraw.forEach((route, index) => {
+            const coordinates = route.geometry.map(coord => [coord[1], coord[0]]);
+            const colors = routeColors[index] || { main: '#888888', outline: '#FFFFFF', name: `Route ${index + 1}` };
+            const isSelected = index === this.selectedRouteIndex;
+            
+            console.log(`   Drawing ${colors.name}: ${coordinates.length} points, ${(route.distance/1000).toFixed(1)}km`);
+            
+            // Draw outline
+            const outline = L.polyline(coordinates, {
+                color: colors.outline,
+                weight: isSelected ? 8 : 7,
+                opacity: isSelected ? 0.7 : 0.5,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(this.map);
+            
+            // Draw main line
+            const line = L.polyline(coordinates, {
+                color: colors.main,
+                weight: isSelected ? 5 : 4,
+                opacity: isSelected ? 0.9 : 0.6,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(this.map);
+            
+            // Make routes clickable to select them
+            line.on('click', () => {
+                this.selectRoute(index);
+            });
+            
+            // Add tooltip
+            const distanceKm = (route.distance / 1000).toFixed(1);
+            const durationMin = Math.round(route.duration / 60);
+            line.bindTooltip(
+                `${colors.name}<br>${distanceKm} km • ${durationMin} min`,
+                { permanent: false, sticky: true }
+            );
+            
+            if (index === 0) {
+                this.routeLine = line;
+                this.routeOutline = outline;
+            } else {
+                this.alternativeRouteLines.push(line);
+                this.alternativeRouteOutlines.push(outline);
+            }
+        });
+        
+        console.log(`✅ ${routesToDraw.length} route(s) drawn on map`);
     }
 
     /**
@@ -1276,6 +1458,12 @@ class TurnByTurnNavigation {
      * Draw route on map
      */
     drawRoute() {
+        // If we have multiple routes, use drawAllRoutes instead
+        if (this.routeAlternatives && this.routeAlternatives.length > 1) {
+            this.drawAllRoutes();
+            return;
+        }
+        
         // Remove old route
         if (this.routeLine) {
             this.map.removeLayer(this.routeLine);
@@ -1304,6 +1492,51 @@ class TurnByTurnNavigation {
             lineJoin: 'round',
             lineCap: 'round'
         }).addTo(this.map);
+    }
+    
+    /**
+     * Select a specific route from alternatives
+     */
+    selectRoute(index) {
+        if (!this.routeAlternatives || index >= this.routeAlternatives.length) {
+            return;
+        }
+        
+        console.log(`🔄 Switching to route ${index + 1}`);
+        
+        this.selectedRouteIndex = index;
+        const selectedRoute = this.routeAlternatives[index];
+        
+        // Update route data
+        this.totalDistance = selectedRoute.distance;
+        this.totalDuration = selectedRoute.duration;
+        this.remainingDistance = selectedRoute.distance;
+        this.routeGeometry = selectedRoute.geometry;
+        this.steps = selectedRoute.steps;
+        
+        // Redraw all routes with new selection highlighted
+        this.drawAllRoutes();
+        
+        // Update route info display
+        this.updateRouteInfo();
+        
+        console.log(`✅ Route ${index + 1} selected: ${(this.totalDistance/1000).toFixed(1)}km, ${Math.round(this.totalDuration/60)}min`);
+    }
+    
+    /**
+     * Update route info display
+     */
+    updateRouteInfo() {
+        if (this.elements.distanceValue) {
+            this.elements.distanceValue.textContent = `${(this.remainingDistance/1000).toFixed(1)} km`;
+        }
+        
+        if (this.elements.etaValue) {
+            const etaMinutes = Math.round(this.totalDuration / 60);
+            const now = new Date();
+            const eta = new Date(now.getTime() + this.totalDuration * 1000);
+            this.elements.etaValue.textContent = eta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
     }
 
     /**
