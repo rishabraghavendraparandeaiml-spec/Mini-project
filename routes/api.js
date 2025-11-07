@@ -1571,12 +1571,11 @@ router.get('/potholes', async (req, res) => {
         longitude: pothole.exifData.longitude,
         severity: pothole.severity,
         description: pothole.description,
-        photoUrl: `/uploads/potholes/${pothole.photo.filename}`,
+        photoUrl: pothole.photo.gridFSFileId ? `/api/pothole/photo/${pothole.photo.gridFSFileId}` : '/images/placeholder.jpg',
         status: pothole.status,
         timestamp: pothole.reportedBy.timestamp,
         gpsValidated: true,
-        geotagVerified: pothole.verification?.isVerified || false,
-        verificationMethod: pothole.verification?.geotagVerification?.method || 'Unknown',
+        validatedByGPS: true,
         camera: `${pothole.exifData.camera?.make || 'Unknown'} ${pothole.exifData.camera?.model || ''}`.trim(),
         _id: pothole._id
       }));
@@ -1627,12 +1626,11 @@ router.get('/potholes/recent', async (req, res) => {
         longitude: pothole.exifData.longitude,
         severity: pothole.severity,
         description: pothole.description,
-        photoUrl: `/uploads/potholes/${pothole.photo.filename}`,
+        photoUrl: pothole.photo.gridFSFileId ? `/api/pothole/photo/${pothole.photo.gridFSFileId}` : '/images/placeholder.jpg',
         status: pothole.status,
         timestamp: pothole.reportedBy.timestamp,
         gpsValidated: true,
-        geotagVerified: pothole.verification?.isVerified || false,
-        verificationMethod: pothole.verification?.geotagVerification?.method || 'Unknown',
+        validatedByGPS: true,
         camera: `${pothole.exifData.camera?.make || 'Unknown'} ${pothole.exifData.camera?.model || ''}`.trim(),
         _id: pothole._id
       }));
@@ -1661,6 +1659,66 @@ router.get('/potholes/recent', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve recent potholes'
+    });
+  }
+});
+
+/**
+ * GET /api/pothole/photo/:fileId
+ * Retrieve a pothole photo from GridFS
+ */
+router.get('/pothole/photo/:fileId', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    
+    if (!gridFSBucket) {
+      return res.status(503).json({
+        success: false,
+        error: 'GridFS not initialized'
+      });
+    }
+
+    // Convert string ID to ObjectId
+    const mongoose = require('mongoose');
+    const objectId = new mongoose.Types.ObjectId(fileId);
+
+    // Check if file exists
+    const files = await gridFSBucket.find({ _id: objectId }).toArray();
+    
+    if (!files || files.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Photo not found'
+      });
+    }
+
+    const file = files[0];
+
+    // Set content type
+    res.set('Content-Type', file.contentType || 'image/jpeg');
+    res.set('Content-Length', file.length);
+    res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+
+    // Stream the file
+    const downloadStream = gridFSBucket.openDownloadStream(objectId);
+    
+    downloadStream.on('error', (error) => {
+      console.error('Error streaming photo from GridFS:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to stream photo'
+        });
+      }
+    });
+
+    downloadStream.pipe(res);
+
+  } catch (error) {
+    console.error('Error retrieving photo from GridFS:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve photo: ' + error.message
     });
   }
 });
@@ -1830,15 +1888,15 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       const fsSync = require('fs');
       const LOCAL_STORAGE_FILE = path.join(__dirname, '..', 'data', 'potholes.json');
       
-      // Create legacy format for JSON storage
+      // Create legacy format for JSON storage (still uses GridFS for photo)
       const legacyData = {
         id: potholeData.id,
         latitude: exifData.latitude,
         longitude: exifData.longitude,
         severity: potholeData.severity,
         description: potholeData.description,
-        photoPath: req.file.path,
-        photoUrl: `/uploads/potholes/${req.file.filename}`,
+        photoGridFSId: gridFSFileId,
+        photoUrl: `/api/pothole/photo/${gridFSFileId}`,
         photoMetadata: {
           camera: exifData.camera,
           capturedAt: exifData.timestamp,
