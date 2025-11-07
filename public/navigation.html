@@ -686,6 +686,18 @@
                 box-shadow: 0 4px 12px rgba(255, 71, 87, 0.5);
             }
         }
+        
+        /* Red warning line on road for potholes */
+        .pothole-road-warning {
+            z-index: 600 !important;
+            pointer-events: none;
+        }
+        
+        @keyframes dash-animation {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
 
         /* Pothole Popup Styles */
         .pothole-popup {

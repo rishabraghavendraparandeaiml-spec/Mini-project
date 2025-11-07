@@ -46,6 +46,7 @@ class TurnByTurnNavigation {
         this.potholes = [];
         this.potholeMarkers = [];
         this.potholeLayer = null;
+        this.potholeRoadLines = []; // Red warning lines on roads
         
         // Autocomplete
         this.searchTimeout = null;
@@ -1764,9 +1765,15 @@ class TurnByTurnNavigation {
      * Display potholes on map
      */
     displayPotholes() {
-        // Clear existing markers
+        // Clear existing markers and road overlays
         this.potholeMarkers.forEach(marker => this.map.removeLayer(marker));
         this.potholeMarkers = [];
+        
+        // Clear existing road warning lines
+        if (this.potholeRoadLines) {
+            this.potholeRoadLines.forEach(line => this.map.removeLayer(line));
+        }
+        this.potholeRoadLines = [];
 
         // Add markers for each pothole
         this.potholes.forEach(pothole => {
@@ -1791,6 +1798,9 @@ class TurnByTurnNavigation {
             marker.bindPopup(popupContent);
 
             this.potholeMarkers.push(marker);
+            
+            // Draw red line on the road segment where pothole is located
+            this.drawPotholeRoadWarning(pothole);
 
             // Remove the newly-added class after animation completes
             if (isNewlyAdded) {
@@ -1799,6 +1809,142 @@ class TurnByTurnNavigation {
                 }, 3000);
             }
         });
+    }
+    
+    /**
+     * Draw a red warning line on the road where pothole is located
+     */
+    async drawPotholeRoadWarning(pothole) {
+        try {
+            const lat = pothole.latitude;
+            const lng = pothole.longitude;
+            const radius = 0.0005; // ~50 meters search radius
+            
+            // Get nearby road segment using Overpass API
+            const overpassQuery = `
+                [out:json][timeout:5];
+                (
+                  way["highway"](around:50,${lat},${lng});
+                );
+                out geom;
+            `;
+            
+            const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+            
+            const response = await fetch(overpassUrl);
+            const data = await response.json();
+            
+            if (data.elements && data.elements.length > 0) {
+                // Find the closest road segment
+                let closestRoad = null;
+                let minDistance = Infinity;
+                
+                data.elements.forEach(element => {
+                    if (element.geometry) {
+                        element.geometry.forEach(node => {
+                            const distance = Math.sqrt(
+                                Math.pow(node.lat - lat, 2) + 
+                                Math.pow(node.lon - lng, 2)
+                            );
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                closestRoad = element;
+                            }
+                        });
+                    }
+                });
+                
+                if (closestRoad && closestRoad.geometry) {
+                    // Find the segment of the road closest to the pothole
+                    let segmentStart = null;
+                    let segmentEnd = null;
+                    let minSegmentDistance = Infinity;
+                    
+                    for (let i = 0; i < closestRoad.geometry.length - 1; i++) {
+                        const node1 = closestRoad.geometry[i];
+                        const node2 = closestRoad.geometry[i + 1];
+                        
+                        // Calculate distance to this segment
+                        const midLat = (node1.lat + node2.lat) / 2;
+                        const midLon = (node1.lon + node2.lon) / 2;
+                        const distance = Math.sqrt(
+                            Math.pow(midLat - lat, 2) + 
+                            Math.pow(midLon - lng, 2)
+                        );
+                        
+                        if (distance < minSegmentDistance) {
+                            minSegmentDistance = distance;
+                            segmentStart = node1;
+                            segmentEnd = node2;
+                        }
+                    }
+                    
+                    if (segmentStart && segmentEnd) {
+                        // Draw red line on the road segment
+                        const roadWarningLine = L.polyline(
+                            [
+                                [segmentStart.lat, segmentStart.lon],
+                                [segmentEnd.lat, segmentEnd.lon]
+                            ],
+                            {
+                                color: '#FF0000',
+                                weight: 8,
+                                opacity: 0.8,
+                                lineJoin: 'round',
+                                lineCap: 'round',
+                                className: 'pothole-road-warning'
+                            }
+                        ).addTo(this.map);
+                        
+                        // Add pulsing animation
+                        roadWarningLine.setStyle({
+                            dashArray: '10, 10',
+                            dashOffset: '0'
+                        });
+                        
+                        this.potholeRoadLines.push(roadWarningLine);
+                        
+                        console.log('🔴 Red warning line drawn on road for pothole at', lat, lng);
+                    }
+                } else {
+                    // Fallback: Draw a simple red circle around the pothole
+                    const warningCircle = L.circle([lat, lng], {
+                        radius: 10, // 10 meters
+                        color: '#FF0000',
+                        fillColor: '#FF0000',
+                        fillOpacity: 0.3,
+                        weight: 3
+                    }).addTo(this.map);
+                    
+                    this.potholeRoadLines.push(warningCircle);
+                    console.log('🔴 Red warning circle drawn (fallback) for pothole at', lat, lng);
+                }
+            } else {
+                // No road found, draw simple circle
+                const warningCircle = L.circle([lat, lng], {
+                    radius: 10,
+                    color: '#FF0000',
+                    fillColor: '#FF0000',
+                    fillOpacity: 0.3,
+                    weight: 3
+                }).addTo(this.map);
+                
+                this.potholeRoadLines.push(warningCircle);
+            }
+            
+        } catch (error) {
+            console.error('❌ Error drawing road warning line:', error);
+            // Fallback to simple circle
+            const warningCircle = L.circle([pothole.latitude, pothole.longitude], {
+                radius: 10,
+                color: '#FF0000',
+                fillColor: '#FF0000',
+                fillOpacity: 0.3,
+                weight: 3
+            }).addTo(this.map);
+            
+            this.potholeRoadLines.push(warningCircle);
+        }
     }
 
     /**
