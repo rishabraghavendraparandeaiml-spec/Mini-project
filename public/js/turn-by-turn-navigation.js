@@ -1777,6 +1777,12 @@ class TurnByTurnNavigation {
                 iconSize: [40, 40]
             });
 
+            console.log('🎯 Creating marker at EXACT coordinates:', {
+                lat: pothole.latitude,
+                lng: pothole.longitude,
+                severity: pothole.severity
+            });
+
             const marker = L.marker([pothole.latitude, pothole.longitude], { icon: markerIcon })
                 .addTo(this.map);
 
@@ -1866,35 +1872,80 @@ class TurnByTurnNavigation {
      * Handle photo selection and validation
      */
     async handlePhotoSelection(event) {
-        const file = event.target.files[0];
-        if (!file) return;
+        const files = Array.from(event.target.files);
+        if (!files.length) return;
 
-        // Show preview
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            this.elements.previewImage.src = e.target.result;
-            this.elements.photoPreview.style.display = 'block';
-        };
-        reader.readAsDataURL(file);
+        console.log(`📸 Selected ${files.length} photo(s)`);
+        
+        // Update photo count
+        const photoCount = document.getElementById('photoCount');
+        if (photoCount) photoCount.textContent = files.length;
 
-        // Check for EXIF GPS data (client-side validation - lenient)
-        try {
-            const arrayBuffer = await file.arrayBuffer();
-            const hasGPS = await this.checkPhotoGPS(arrayBuffer);
+        // Clear previous previews
+        const previewContainer = document.getElementById('previewContainer');
+        previewContainer.innerHTML = '';
+        this.elements.photoPreview.style.display = 'block';
+
+        let hasAnyGPS = false;
+        let gpsResults = [];
+
+        // Process each file
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             
-            if (hasGPS) {
-                this.elements.gpsStatus.innerHTML = '<div class="alert alert-success mt-2"><i class="fas fa-check-circle me-2"></i>GPS data detected in photo! Pothole will be placed at photo location.</div>';
-            } else {
-                // Show info but don't block - server will do final validation
-                this.elements.gpsStatus.innerHTML = '<div class="alert alert-info mt-2"><i class="fas fa-info-circle me-2"></i>GPS validation will be performed on server. Photo must have location data.</div>';
+            // Create preview
+            const previewDiv = document.createElement('div');
+            previewDiv.style.cssText = 'position: relative; flex: 0 0 150px;';
+            
+            const img = document.createElement('img');
+            img.style.cssText = 'width: 150px; height: 150px; object-fit: cover; border-radius: 8px; border: 2px solid #ddd;';
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            const label = document.createElement('div');
+            label.style.cssText = 'position: absolute; bottom: 5px; left: 5px; right: 5px; background: rgba(0,0,0,0.7); color: white; padding: 2px 5px; border-radius: 4px; font-size: 11px; text-align: center;';
+            label.textContent = `Photo ${i + 1}`;
+            
+            previewDiv.appendChild(img);
+            previewDiv.appendChild(label);
+            previewContainer.appendChild(previewDiv);
+
+            // Check for EXIF GPS data
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const hasGPS = await this.checkPhotoGPS(arrayBuffer);
+                gpsResults.push({ file: file.name, hasGPS });
+                
+                if (hasGPS) {
+                    hasAnyGPS = true;
+                    label.innerHTML = `Photo ${i + 1}<br>✓ GPS`;
+                    label.style.background = 'rgba(16, 185, 129, 0.9)';
+                } else {
+                    label.innerHTML = `Photo ${i + 1}<br>⚠ No GPS`;
+                    label.style.background = 'rgba(245, 158, 11, 0.9)';
+                }
+            } catch (error) {
+                console.warn('Could not check EXIF for', file.name, error);
+                gpsResults.push({ file: file.name, hasGPS: false });
             }
-            // Always enable submit button - let server validate
-            this.elements.submitPotholeBtn.disabled = false;
-        } catch (error) {
-            console.warn('Could not check EXIF data client-side:', error);
-            this.elements.gpsStatus.innerHTML = '<div class="alert alert-info mt-2"><i class="fas fa-info-circle me-2"></i>GPS validation will be performed on upload.</div>';
-            this.elements.submitPotholeBtn.disabled = false;
         }
+
+        // Show GPS status summary
+        const gpsCount = gpsResults.filter(r => r.hasGPS).length;
+        if (gpsCount === files.length) {
+            this.elements.gpsStatus.innerHTML = `<div class="alert alert-success mt-2"><i class="fas fa-check-circle me-2"></i>All ${files.length} photos have GPS data! Markers will be placed at exact locations.</div>`;
+        } else if (gpsCount > 0) {
+            this.elements.gpsStatus.innerHTML = `<div class="alert alert-warning mt-2"><i class="fas fa-exclamation-triangle me-2"></i>${gpsCount} of ${files.length} photos have GPS data. Photos without GPS will be rejected by the server.</div>`;
+        } else {
+            this.elements.gpsStatus.innerHTML = `<div class="alert alert-danger mt-2"><i class="fas fa-exclamation-circle me-2"></i>No GPS data detected. Server will reject photos without location data. Use original camera photos or GPS camera apps.</div>`;
+        }
+        
+        // Always enable submit button - let server validate
+        this.elements.submitPotholeBtn.disabled = false;
     }
 
     /**
@@ -1973,71 +2024,103 @@ class TurnByTurnNavigation {
     /**
      * Submit pothole report
      */
+    /**
+     * Submit pothole report with multiple photos
+     */
     async submitPotholeReport() {
-        const photoFile = this.elements.potholePhoto.files[0];
+        const photoFiles = this.elements.potholePhoto.files;
         
-        if (!photoFile) {
-            this.showToast('Please select a photo', 'error');
+        if (!photoFiles || photoFiles.length === 0) {
+            this.showToast('Please select at least one photo', 'error');
             return;
         }
 
         const severity = this.elements.potholeSeverity.value;
         const description = this.elements.potholeDescription.value;
 
-        // Create form data
-        const formData = new FormData();
-        formData.append('photo', photoFile);
-        formData.append('severity', severity);
-        formData.append('description', description);
+        console.log(`📸 Uploading ${photoFiles.length} photo(s)...`);
 
         // Show loading state
         this.elements.submitPotholeBtn.disabled = true;
-        this.elements.submitPotholeBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Uploading...';
+        this.elements.submitPotholeBtn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Uploading ${photoFiles.length} photo(s)...`;
 
         try {
-            const response = await axios.post('/api/pothole', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
+            const uploadPromises = [];
+            
+            // Upload each photo separately
+            for (let i = 0; i < photoFiles.length; i++) {
+                const photoFile = photoFiles[i];
+                const formData = new FormData();
+                formData.append('photo', photoFile);
+                formData.append('severity', severity);
+                formData.append('description', `${description}${description ? ' ' : ''}[Photo ${i + 1}/${photoFiles.length}]`);
+
+                uploadPromises.push(
+                    axios.post('/api/pothole', formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data'
+                        }
+                    })
+                );
+            }
+
+            // Wait for all uploads to complete
+            const responses = await Promise.all(uploadPromises);
+            
+            const successCount = responses.filter(r => r.data.success).length;
+            console.log(`✅ ${successCount}/${photoFiles.length} photos uploaded successfully`);
+
+            // Process all successful responses
+            let firstMarker = null;
+            responses.forEach((response, index) => {
+                if (response.data.success) {
+                    console.log(`\n📍 Photo ${index + 1}/${photoFiles.length} - ${photoFiles[index].name}:`);
+                    console.log(`   🆔 Upload ID: ${response.data.uploadId}`);
+                    console.log(`   📍 GPS Coordinates from THIS photo:`);
+                    console.log(`      Latitude:  ${response.data.pothole.latitude}`);
+                    console.log(`      Longitude: ${response.data.pothole.longitude}`);
+                    console.log(`   🎯 Placing marker at UNIQUE location for this photo\n`);
+                    
+                    // Mark as newly added for animation
+                    response.data.pothole.isNew = true;
+                    
+                    // Add to map immediately
+                    this.potholes.push(response.data.pothole);
+                    
+                    // Remember first marker for map pan
+                    if (!firstMarker) {
+                        firstMarker = response.data.pothole;
+                    }
                 }
             });
 
-            if (response.data.success) {
-                console.log('✅ Pothole upload response:', response.data);
-                console.log('📍 Pothole coordinates from photo GPS:');
-                console.log('   Latitude:', response.data.pothole.latitude);
-                console.log('   Longitude:', response.data.pothole.longitude);
+            // Refresh all markers
+            this.displayPotholes();
+            
+            // Pan map to first pothole location
+            if (firstMarker && firstMarker.latitude && firstMarker.longitude) {
+                console.log('🗺️  Panning map to first pothole location');
+                this.map.setView([firstMarker.latitude, firstMarker.longitude], 16);
                 
-                this.showToast(`Pothole reported at location from photo GPS!`, 'success');
-                
-                // Mark as newly added for animation
-                response.data.pothole.isNew = true;
-                
-                // Add to map immediately at the GPS coordinates from the photo
-                this.potholes.push(response.data.pothole);
-                this.displayPotholes();
-                
-                // Pan map to show the pothole location
-                if (response.data.pothole.latitude && response.data.pothole.longitude) {
-                    this.map.setView([response.data.pothole.latitude, response.data.pothole.longitude], 16);
-                    
-                    // Show popup immediately
-                    setTimeout(() => {
-                        const lastMarker = this.potholeMarkers[this.potholeMarkers.length - 1];
-                        if (lastMarker) {
-                            lastMarker.openPopup();
+                // Show popup for first marker
+                setTimeout(() => {
+                    if (this.potholeMarkers.length > 0) {
+                        const lastIndex = this.potholeMarkers.length - photoFiles.length;
+                        if (lastIndex >= 0 && this.potholeMarkers[lastIndex]) {
+                            this.potholeMarkers[lastIndex].openPopup();
                         }
-                    }, 500);
-                }
-                
-                // Close modal
-                this.potholeModalInstance.hide();
-                
-                // Speak confirmation
-                if (this.voiceEnabled) {
-                    this.speakInstruction('Pothole reported successfully at photo location');
-                }
-            } else {
-                throw new Error(response.data.error || 'Upload failed');
+                    }
+                }, 500);
+            }
+
+            this.showToast(`${successCount} pothole marker(s) placed at photo GPS locations!`, 'success');
+            
+            // Close modal
+            this.potholeModalInstance.hide();
+            
+            // Speak confirmation
+            if (this.voiceEnabled) {
+                this.speakInstruction(`${successCount} pothole${successCount > 1 ? 's' : ''} reported successfully`);
             }
 
         } catch (error) {

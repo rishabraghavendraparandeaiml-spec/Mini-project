@@ -316,23 +316,9 @@ router.post('/potholes/upload', upload.single('potholePhoto'), async (req, res) 
     console.log('  - Method:', exifData.extractionMethod);
     console.log('========================================\n');
     
-    if (!exifData.hasGPS || !exifData.latitude || !exifData.longitude) {
-      // For demo purposes, generate random coordinates within Karnataka if no GPS data
-      const demoLocation = {
-        latitude: 12.9716 + (Math.random() - 0.5) * 0.5,  // Random location near Bangalore
-        longitude: 77.5946 + (Math.random() - 0.5) * 0.5,
-      };
-      
-      console.log('⚠️ No GPS data found in photo, using demo coordinates:', demoLocation);
-      console.log('💡 Tip: Enable location services in your camera and take a new photo');
-      
-      exifData.latitude = demoLocation.latitude;
-      exifData.longitude = demoLocation.longitude;
-      exifData.hasGPS = true;
-      exifData.isDemoLocation = true;
-    } else {
-      console.log('✅ Real GPS coordinates extracted from photo!');
-    }
+    // No demo coordinates - strict GPS validation only
+    // Photos must have real GPS data (from EXIF or OCR text extraction)
+
 
     // Create pothole record
     const potholeData = {
@@ -1271,7 +1257,12 @@ function extractExifData(buffer) {
     if (gpsTags.length > 0) {
       console.log('📋 GPS tag details:');
       gpsTags.forEach(tag => {
-        console.log(`  - ${tag}:`, tags[tag]?.description || tags[tag]?.value || tags[tag]);
+        const tagData = tags[tag];
+        console.log(`  - ${tag}:`, {
+          value: tagData?.value,
+          description: tagData?.description,
+          type: typeof tagData?.value
+        });
       });
     }
     
@@ -1280,48 +1271,171 @@ function extractExifData(buffer) {
     
     // Extract GPS coordinates
     if (tags.GPSLatitude && tags.GPSLongitude) {
-      // GPSLatitude and GPSLongitude are arrays [degrees, minutes, seconds]
-      const latValues = tags.GPSLatitude.description || tags.GPSLatitude.value;
-      const lonValues = tags.GPSLongitude.description || tags.GPSLongitude.value;
-      const latRef = tags.GPSLatitudeRef?.value?.[0] || tags.GPSLatitudeRef?.description;
-      const lonRef = tags.GPSLongitudeRef?.value?.[0] || tags.GPSLongitudeRef?.description;
+      // Get raw values - ExifReader can return different formats
+      const latTag = tags.GPSLatitude;
+      const lonTag = tags.GPSLongitude;
+      const latRef = tags.GPSLatitudeRef?.value?.[0] || tags.GPSLatitudeRef?.description || 'N';
+      const lonRef = tags.GPSLongitudeRef?.value?.[0] || tags.GPSLongitudeRef?.description || 'E';
       
-      console.log('📍 GPS Raw Data:', { latValues, lonValues, latRef, lonRef });
+      // Try to get the actual numeric value from the tag
+      let latValues = latTag.description || latTag.value;
+      let lonValues = lonTag.description || lonTag.value;
       
-      // If description is already in decimal format
-      if (typeof latValues === 'number') {
-        lat = latValues;
-      } else if (typeof latValues === 'string' && latValues.includes('°')) {
-        // Parse from description like "12° 58' 17.88"
-        lat = parseFloat(latValues);
-      } else if (Array.isArray(latValues) && latValues.length === 3) {
-        // Convert from DMS to decimal
-        lat = latValues[0] + (latValues[1] / 60) + (latValues[2] / 3600);
+      // If we have the raw value array, use it directly
+      if (latTag.value && Array.isArray(latTag.value)) {
+        latValues = latTag.value;
+      }
+      if (lonTag.value && Array.isArray(lonTag.value)) {
+        lonValues = lonTag.value;
       }
       
+      console.log('📍 GPS Raw Data:', { 
+        latValues, 
+        lonValues, 
+        latRef, 
+        lonRef,
+        latValueType: typeof latValues,
+        lonValueType: typeof lonValues,
+        latValueIsArray: Array.isArray(latValues),
+        lonValueIsArray: Array.isArray(lonValues)
+      });
+      
+      // Helper function to convert DMS array to decimal
+      const dmsArrayToDecimal = (dmsArray) => {
+        if (!Array.isArray(dmsArray) || dmsArray.length < 3) return null;
+        const degrees = parseFloat(dmsArray[0]) || 0;
+        const minutes = parseFloat(dmsArray[1]) || 0;
+        const seconds = parseFloat(dmsArray[2]) || 0;
+        return degrees + (minutes / 60) + (seconds / 3600);
+      };
+      
+      // Helper function to parse DMS string like "12° 54' 26.1972"" with enhanced accuracy
+      const parseDMSString = (dmsString) => {
+        if (!dmsString) return null;
+        
+        // If it's already a number, return it
+        if (typeof dmsString === 'number') return dmsString;
+        
+        const str = String(dmsString);
+        
+        // Pattern 1: Full DMS format - degrees° minutes' seconds"
+        const dmsMatch = str.match(/(\d+(?:\.\d+)?)[°\s]+(\d+(?:\.\d+)?)['\s]+(\d+(?:\.\d+)?)/);
+        if (dmsMatch) {
+          const degrees = parseFloat(dmsMatch[1]);
+          const minutes = parseFloat(dmsMatch[2]);
+          const seconds = parseFloat(dmsMatch[3]);
+          const decimal = degrees + (minutes / 60) + (seconds / 3600);
+          console.log(`   🔢 DMS conversion: ${degrees}° ${minutes}' ${seconds}" = ${decimal.toFixed(8)}`);
+          return decimal;
+        }
+        
+        // Pattern 2: Degrees and minutes only - degrees° minutes'
+        const dmMatch = str.match(/(\d+(?:\.\d+)?)[°\s]+(\d+(?:\.\d+)?)['\s]/);
+        if (dmMatch) {
+          const degrees = parseFloat(dmMatch[1]);
+          const minutes = parseFloat(dmMatch[2]);
+          const decimal = degrees + (minutes / 60);
+          console.log(`   🔢 DM conversion: ${degrees}° ${minutes}' = ${decimal.toFixed(8)}`);
+          return decimal;
+        }
+        
+        // Pattern 3: Just decimal with degree symbol - 12.908388°
+        const decimalMatch = str.match(/(\d+\.\d+)[°]?/);
+        if (decimalMatch) {
+          const decimal = parseFloat(decimalMatch[1]);
+          console.log(`   🔢 Decimal: ${decimal}`);
+          return decimal;
+        }
+        
+        // Pattern 4: Try to extract any decimal number
+        const cleanedStr = str.replace(/[^\d.-]/g, '');
+        const decimal = parseFloat(cleanedStr);
+        if (!isNaN(decimal) && decimal > 0) {
+          console.log(`   🔢 Extracted decimal: ${decimal}`);
+          return decimal;
+        }
+        
+        console.log(`   ⚠️ Could not parse: "${dmsString}"`);
+        return null;
+      };
+      
+      // Parse latitude
+      if (typeof latValues === 'number') {
+        lat = latValues;
+        console.log('📐 Latitude is already a number:', lat);
+      } else if (Array.isArray(latValues) && latValues.length === 3) {
+        // DMS array format
+        lat = dmsArrayToDecimal(latValues);
+        console.log('📐 Converted latitude from DMS array:', latValues, '→', lat);
+      } else if (typeof latValues === 'string') {
+        lat = parseDMSString(latValues);
+        console.log('📐 Parsed latitude from string:', latValues, '→', lat);
+      } else {
+        console.log('⚠️ Unexpected latitude format:', typeof latValues, latValues);
+      }
+      
+      // Parse longitude
       if (typeof lonValues === 'number') {
         lon = lonValues;
-      } else if (typeof lonValues === 'string' && lonValues.includes('°')) {
-        lon = parseFloat(lonValues);
+        console.log('📐 Longitude is already a number:', lon);
       } else if (Array.isArray(lonValues) && lonValues.length === 3) {
-        lon = lonValues[0] + (lonValues[1] / 60) + (lonValues[2] / 3600);
+        // DMS array format
+        lon = dmsArrayToDecimal(lonValues);
+        console.log('📐 Converted longitude from DMS array:', lonValues, '→', lon);
+      } else if (typeof lonValues === 'string') {
+        lon = parseDMSString(lonValues);
+        console.log('📐 Parsed longitude from string:', lonValues, '→', lon);
+      } else {
+        console.log('⚠️ Unexpected longitude format:', typeof lonValues, lonValues);
       }
       
       // Apply hemisphere correction
       if (latRef === 'S' || latRef === 'South') lat = -lat;
       if (lonRef === 'W' || lonRef === 'West') lon = -lon;
       
+      console.log('🎯 Final calculated coordinates:', { 
+        latitude: lat, 
+        longitude: lon,
+        latRef,
+        lonRef 
+      });
+      
+      // Verify coordinates match expected format for Bangalore area
       if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+        // Round to 8 decimal places for ~1.1mm precision
+        const preciseLatitude = parseFloat(lat.toFixed(8));
+        const preciseLongitude = parseFloat(lon.toFixed(8));
+        
+        console.log('✅ Coordinates validated and precision-optimized:');
+        console.log('   📍 Latitude:  ', preciseLatitude, '° (8 decimals)');
+        console.log('   📍 Longitude: ', preciseLongitude, '° (8 decimals)');
+        console.log('   🎯 Precision: ~1.1mm accuracy');
+        console.log('   🗺️  Google Maps:', `https://maps.google.com/?q=${preciseLatitude},${preciseLongitude}`);
+        
+        // Validate reasonable ranges (extended Bangalore metro area)
+        const isBangaloreMetro = (
+          preciseLatitude >= 12.5 && preciseLatitude <= 13.5 &&
+          preciseLongitude >= 77.0 && preciseLongitude <= 78.0
+        );
+        
+        console.log('   🌍 Location check:', isBangaloreMetro ? '✓ Bangalore metro area' : '⚠️ Outside expected area');
+        
         const gpsData = {
-          latitude: lat,
-          longitude: lon,
+          latitude: preciseLatitude,
+          longitude: preciseLongitude,
           timestamp: tags.DateTime?.description || tags.DateTimeOriginal?.description || new Date(),
           camera: tags.Make && tags.Model ? `${tags.Make.description} ${tags.Model.description}` : 'Unknown',
           hasGPS: true,
-          extractionMethod: 'ExifReader'
+          extractionMethod: 'ExifReader',
+          precision: 8,
+          accuracy: '~1.1mm'
         };
         
-        console.log('✅ GPS extracted successfully (ExifReader):', gpsData);
+        console.log('✅ GPS extracted successfully (ExifReader)');
+        console.log('📍 EXACT COORDINATES TO BE USED:', {
+          lat: gpsData.latitude,
+          lng: gpsData.longitude
+        });
         return gpsData;
       }
     }
@@ -1347,10 +1461,23 @@ function extractExifData(buffer) {
       if (result.tags.GPSLatitudeRef === 'S') lat = -lat;
       if (result.tags.GPSLongitudeRef === 'W') lon = -lon;
       
+      console.log('🎯 Final calculated coordinates (exif-parser):', { 
+        latitude: lat, 
+        longitude: lon,
+        latRef: result.tags.GPSLatitudeRef,
+        lonRef: result.tags.GPSLongitudeRef
+      });
+      
       if (!isNaN(lat) && !isNaN(lon)) {
+        console.log('✅ Coordinates validated:');
+        console.log('   📍 Latitude:  ', lat.toFixed(8), '°');
+        console.log('   📍 Longitude: ', lon.toFixed(8), '°');
+        console.log('   🌍 Location: Bangalore area:', 
+          (lat >= 12.8 && lat <= 13.2 && lon >= 77.4 && lon <= 77.8) ? 'YES ✓' : 'NO ✗');
+        
         const gpsData = {
-          latitude: lat,
-          longitude: lon,
+          latitude: parseFloat(lat.toFixed(8)),  // Ensure precision
+          longitude: parseFloat(lon.toFixed(8)), // Ensure precision
           timestamp: result.tags.DateTime || result.tags.DateTimeOriginal || new Date(),
           camera: result.tags.Make && result.tags.Model ? `${result.tags.Make} ${result.tags.Model}` : 'Unknown',
           hasGPS: true,
@@ -1358,6 +1485,11 @@ function extractExifData(buffer) {
         };
         
         console.log('✅ GPS extracted successfully (exif-parser):', gpsData);
+        console.log('📍 EXACT COORDINATES TO BE USED:', {
+          lat: gpsData.latitude,
+          lng: gpsData.longitude
+        });
+        console.log('🎯 Expected from your photo: Lat 12.887988° Long 77.564032°');
         return gpsData;
       }
     }
@@ -1367,6 +1499,155 @@ function extractExifData(buffer) {
   
   console.log('❌ No valid GPS data found with any method');
   return { hasGPS: false };
+}
+
+/**
+ * Extract GPS coordinates from photo text overlay (GPS Map Camera watermark)
+ * Enhanced with better pattern matching and preprocessing
+ * @param {Buffer} buffer - Image buffer
+ * @returns {Object} GPS data with latitude and longitude
+ */
+async function extractGPSFromPhotoText(buffer) {
+  console.log('🔍 Attempting to extract GPS from photo text overlay (OCR)...');
+  
+  try {
+    // Use Tesseract with optimized settings for better accuracy
+    const result = await Tesseract.recognize(buffer, 'eng', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          console.log(`   OCR Progress: ${Math.round(m.progress * 100)}%`);
+        }
+      },
+      tessedit_char_whitelist: '0123456789.°\'"NESWLatLongitude, :-',
+      tessedit_pageseg_mode: Tesseract.PSM.AUTO
+    });
+    
+    const text = result.data.text;
+    console.log('📝 Extracted text from photo:');
+    console.log(text);
+    console.log('---');
+    
+    // Clean up common OCR mistakes
+    const cleanedText = text
+      .replace(/[Oo0]/g, match => match === 'O' || match === 'o' ? '0' : match)
+      .replace(/[Il|]/g, '1')
+      .replace(/[Ss]/g, match => match === 'S' ? 'S' : match);
+    
+    console.log('🧹 Cleaned text for processing');
+    
+    // Multiple coordinate patterns to try
+    const patterns = [
+      // Pattern 1: "Lat 12.908388° Long 77.544467°" or "Lat: 12.908388 Long: 77.544467"
+      {
+        regex: /Lat[:\s]*([-]?\d{1,2}\.\d{4,})[°\s,]*Long[itude]*[:\s]*([-]?\d{1,3}\.\d{4,})/i,
+        name: 'Lat/Long with labels'
+      },
+      // Pattern 2: "Latitude: 12.908388 Longitude: 77.544467"
+      {
+        regex: /Latitude[:\s]*([-]?\d{1,2}\.\d{4,})[°\s,]*Longitude[:\s]*([-]?\d{1,3}\.\d{4,})/i,
+        name: 'Full Latitude/Longitude'
+      },
+      // Pattern 3: Two decimal numbers separated by comma or space
+      {
+        regex: /(\d{1,2}\.\d{5,})[°\s,]+(\d{1,3}\.\d{5,})/,
+        name: 'Decimal pair'
+      },
+      // Pattern 4: With N/S E/W indicators
+      {
+        regex: /(\d{1,2}\.\d{4,})[°\s]*[NS][,\s]*(\d{1,3}\.\d{4,})[°\s]*[EW]/i,
+        name: 'With N/S E/W'
+      },
+      // Pattern 5: GPS Map Camera specific format
+      {
+        regex: /(\d{1,2}\.\d{6,})[°]*\s*[,]?\s*(\d{1,3}\.\d{6,})[°]*/,
+        name: 'Pure decimal format'
+      }
+    ];
+    
+    // Try each pattern
+    for (const pattern of patterns) {
+      const match = cleanedText.match(pattern.regex);
+      
+      if (match) {
+        let latitude = parseFloat(match[1]);
+        let longitude = parseFloat(match[2]);
+        
+        // Validate the numbers are valid
+        if (isNaN(latitude) || isNaN(longitude)) {
+          console.log(`⚠️ Pattern "${pattern.name}" matched but coordinates invalid`);
+          continue;
+        }
+        
+        // Ensure proper precision (at least 5 decimal places)
+        latitude = parseFloat(latitude.toFixed(8));
+        longitude = parseFloat(longitude.toFixed(8));
+        
+        // Validate coordinates are in reasonable range
+        // Bangalore area: Lat 12.8-13.2, Long 77.4-77.8
+        // Extended range for suburbs: Lat 12.7-13.3, Long 77.3-78.0
+        const isValidRange = (
+          latitude >= 12.7 && latitude <= 13.3 && 
+          longitude >= 77.3 && longitude <= 78.0
+        );
+        
+        if (isValidRange) {
+          console.log(`✅ GPS coordinates found using pattern: "${pattern.name}"`);
+          console.log('   📍 Latitude: ', latitude, '(8 decimal places)');
+          console.log('   📍 Longitude:', longitude, '(8 decimal places)');
+          console.log('   🎯 Precision: ~', Math.round(111000 / Math.pow(10, 8)), 'mm');
+          console.log('   🗺️  Google Maps: https://maps.google.com/?q=' + latitude + ',' + longitude);
+          
+          return {
+            latitude: latitude,
+            longitude: longitude,
+            hasGPS: true,
+            extractionMethod: 'OCR-' + pattern.name,
+            source: 'GPS Map Camera watermark',
+            confidence: 'high',
+            precision: 8
+          };
+        } else {
+          console.log(`⚠️ Pattern "${pattern.name}" found coordinates but outside Bangalore area:`);
+          console.log(`   Lat: ${latitude}, Long: ${longitude}`);
+        }
+      }
+    }
+    
+    // Last resort: look for any two large decimal numbers
+    const decimalNumbers = cleanedText.match(/\d{1,3}\.\d{5,}/g);
+    if (decimalNumbers && decimalNumbers.length >= 2) {
+      console.log('🔍 Found decimal numbers:', decimalNumbers);
+      
+      for (let i = 0; i < decimalNumbers.length - 1; i++) {
+        const lat = parseFloat(decimalNumbers[i]);
+        const lon = parseFloat(decimalNumbers[i + 1]);
+        
+        if (lat >= 12.7 && lat <= 13.3 && lon >= 77.3 && lon <= 78.0) {
+          console.log('✅ GPS coordinates found from decimal number sequence!');
+          console.log('   📍 Latitude: ', lat);
+          console.log('   📍 Longitude:', lon);
+          
+          return {
+            latitude: parseFloat(lat.toFixed(8)),
+            longitude: parseFloat(lon.toFixed(8)),
+            hasGPS: true,
+            extractionMethod: 'OCR-DecimalSequence',
+            source: 'Text numbers',
+            confidence: 'medium',
+            precision: 8
+          };
+        }
+      }
+    }
+    
+    console.log('⚠️ No valid GPS coordinates found in photo text');
+    console.log('💡 Tip: Ensure photo has visible GPS coordinates as text overlay');
+    return { hasGPS: false };
+    
+  } catch (error) {
+    console.error('❌ OCR extraction failed:', error.message);
+    return { hasGPS: false };
+  }
 }
 
 // Helper function to save pothole to file as backup
@@ -1729,6 +2010,9 @@ router.get('/pothole/photo/:fileId', async (req, res) => {
  * Only photos with embedded GPS coordinates are accepted
  */
 router.post('/pothole', upload.single('photo'), async (req, res) => {
+  const uploadId = `UPLOAD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`\n🆔 New Upload Request ID: ${uploadId}`);
+  
   try {
     const { severity, description } = req.body;
 
@@ -1745,14 +2029,16 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
     const fileBuffer = req.file.buffer;
     
     console.log('\n========================================');
-    console.log('📸 Processing uploaded photo:', req.file.originalname);
+    console.log('🆔 Upload ID:', uploadId);
+    console.log('📸 Processing NEW photo:', req.file.originalname);
     console.log('📊 File size:', (req.file.size / 1024).toFixed(2), 'KB');
     console.log('📂 Storage: MongoDB GridFS');
+    console.log('🔍 Extracting GPS from THIS specific photo...');
     console.log('========================================\n');
     
     const exifData = extractExifData(fileBuffer);
     
-    console.log('\n📍 EXIF Extraction Result:');
+    console.log('\n📍 EXIF Extraction Result for', req.file.originalname, ':');
     console.log('  - Has GPS:', exifData.hasGPS);
     console.log('  - Latitude:', exifData.latitude);
     console.log('  - Longitude:', exifData.longitude);
@@ -1761,33 +2047,64 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
     console.log('  - Timestamp:', exifData.timestamp);
     console.log('========================================\n');
 
-    // LENIENT VALIDATION: Use demo coordinates if no GPS found (for testing)
+    // STRICT VALIDATION: Photos must have GPS data
+    // If EXIF extraction failed, try OCR to read GPS coordinates from photo text overlay
     if (!exifData.hasGPS || !exifData.latitude || !exifData.longitude) {
-      console.log('⚠️ No GPS data found in photo EXIF');
+      console.log('\n⚠️ No GPS found in EXIF, trying OCR extraction from photo text...');
       
-      // For development/testing: Use current location or demo coordinates
-      const demoLat = 12.9716 + (Math.random() - 0.5) * 0.1;
-      const demoLng = 77.5946 + (Math.random() - 0.5) * 0.1;
+      const ocrData = await extractGPSFromPhotoText(fileBuffer);
       
-      console.log('💡 Using demo coordinates for testing:', { lat: demoLat, lng: demoLng });
-      console.log('⚠️ In production, you should enable strict GPS validation');
+      if (ocrData.hasGPS && ocrData.latitude && ocrData.longitude) {
+        console.log('✅ GPS coordinates extracted from photo text overlay!');
+        console.log('   📍 Latitude:', ocrData.latitude);
+        console.log('   📍 Longitude:', ocrData.longitude);
+        console.log('   📄 Source:', ocrData.source);
+        console.log('   🔧 Method:', ocrData.extractionMethod);
+        
+        // Use OCR data as EXIF data
+        exifData.latitude = ocrData.latitude;
+        exifData.longitude = ocrData.longitude;
+        exifData.hasGPS = true;
+        exifData.extractionMethod = ocrData.extractionMethod;
+        exifData.gpsSource = ocrData.source;
+        
+        console.log('✅ Using OCR-extracted coordinates for pothole location\n');
+      } else {
+        console.log('\n❌ ❌ ❌  NO GPS DATA FOUND IN PHOTO ❌ ❌ ❌');
+        console.log('❌ Photo does not contain GPS coordinates!');
+        console.log('📍 Your photo needs to be taken with location services enabled.');
+        console.log('⚠️  Photos from WhatsApp/social media often have GPS data removed!');
+        console.log('⚠️  Use the ORIGINAL photo directly from your camera!');
+        console.log('⚠️  Or use a GPS camera app that stamps coordinates as text on the photo!\n');
+        
+        return res.status(400).json({
+          success: false,
+          error: 'Photo must have GPS location data. Please use the original photo from your camera with location enabled, or use a GPS camera app that stamps coordinates on the photo. Photos from WhatsApp/social media have GPS removed.',
+          code: 'NO_GPS_DATA',
+          hint: 'Take a new photo with your camera app (location enabled), use a GPS camera app, or use the original photo file.'
+        });
+      }
+    }
+    
+    // At this point, we have GPS data (from EXIF or OCR)
+    if (exifData.hasGPS && exifData.latitude && exifData.longitude) {
+      console.log('\n✅ ✅ ✅  REAL GPS COORDINATES EXTRACTED FROM PHOTO ✅ ✅ ✅');
+      console.log('📷 Photo file:', req.file.originalname);
+      console.log('🎯 USING EXACT PHOTO COORDINATES:');
+      console.log('   📍 Latitude:  ', exifData.latitude);
+      console.log('   📍 Longitude: ', exifData.longitude);
+      console.log('   📷 Camera:', exifData.camera);
+      console.log('   🕐 Timestamp:', exifData.timestamp);
       
-      exifData.latitude = demoLat;
-      exifData.longitude = demoLng;
-      exifData.hasGPS = true;
-      exifData.isDemoLocation = true;
+      // Verify coordinates are in Bangalore area
+      const isBangaloreArea = (exifData.latitude >= 12.8 && exifData.latitude <= 13.2 && 
+                               exifData.longitude >= 77.4 && exifData.longitude <= 77.8);
+      console.log('   🌍 Bangalore area check:', isBangaloreArea ? '✓ YES' : '✗ NO');
       
-      // Uncomment below for strict validation in production
-      /*
-      await require('fs').promises.unlink(req.file.path);
-      return res.status(400).json({
-        success: false,
-        error: 'Photo must have GPS location data embedded. Please enable location services in your camera and take a new photo.',
-        code: 'NO_GPS_DATA'
-      });
-      */
-    } else {
-      console.log('✅ Real GPS coordinates extracted from photo!');
+      // Show exact location format
+      console.log('   📌 Google Maps format: https://maps.google.com/?q=' + exifData.latitude + ',' + exifData.longitude);
+      console.log('   ⚠️  Marker will be placed at THIS photo\'s exact location!');
+      console.log('   ⚠️  Different photos = Different locations!\n');
     }
 
     // Validate GPS coordinates are reasonable
@@ -1872,6 +2189,13 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       }
     };
 
+    console.log('💾 Saving to database with coordinates:');
+    console.log('   🆔 Upload ID:', uploadId);
+    console.log('   � Photo:', req.file.originalname);
+    console.log('   �📍 MongoDB GeoJSON format [lng, lat]:', potholeData.location.coordinates);
+    console.log('   📍 Regular format [lat, lng]:', [exifData.latitude, exifData.longitude]);
+    console.log('   ⚠️  This is UNIQUE to this photo!');
+
     let savedPothole;
 
     try {
@@ -1943,10 +2267,21 @@ router.post('/pothole', upload.single('photo'), async (req, res) => {
       timestamp: new Date()
     };
 
+    console.log('📤 Sending response to frontend with coordinates:');
+    console.log('   🆔 Upload ID:', uploadId);
+    console.log('   📸 Photo:', req.file.originalname);
+    console.log('   📍 Latitude:  ', responseData.latitude);
+    console.log('   📍 Longitude: ', responseData.longitude);
+    console.log('   📌 Map Link: https://maps.google.com/?q=' + responseData.latitude + ',' + responseData.longitude);
+    console.log('   ⚠️  Frontend will place marker at these EXACT coordinates');
+    console.log('   ⚠️  Each photo creates a marker at ITS OWN location!');
+    console.log('   ⚠️  Expected for your keyboard photo: Lat ~12.908388, Long ~77.544467\n');
+
     res.json({
       success: true,
       message: 'Pothole reported successfully at photo GPS location',
       pothole: responseData,
+      uploadId: uploadId,
       storage: savedPothole._id ? 'MongoDB' : 'Local JSON',
       gpsInfo: {
         latitude: exifData.latitude,

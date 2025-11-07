@@ -1120,9 +1120,9 @@
 
                     <form id="potholeForm" enctype="multipart/form-data">
                         <div class="mb-3">
-                            <label class="form-label">Photo with GPS Location *</label>
-                            <input type="file" class="form-control" id="potholePhoto" accept="image/*" capture="environment" required>
-                            <small class="text-muted">Take a new photo with location services enabled</small>
+                            <label class="form-label">Photos with GPS Location * (Multiple allowed)</label>
+                            <input type="file" class="form-control" id="potholePhoto" accept="image/*" capture="environment" multiple required>
+                            <small class="text-muted">Select or take multiple photos with location services enabled</small>
                         </div>
 
                         <div class="mb-3">
@@ -1141,9 +1141,9 @@
                         </div>
 
                         <div id="photoPreview" class="mb-3" style="display:none;">
-                            <label class="form-label">Preview:</label>
-                            <div class="text-center">
-                                <img id="previewImage" style="max-width: 100%; max-height: 200px; border-radius: 8px;">
+                            <label class="form-label">Preview (<span id="photoCount">0</span> photos selected):</label>
+                            <div id="previewContainer" style="display: flex; flex-wrap: wrap; gap: 10px; max-height: 300px; overflow-y: auto;">
+                                <!-- Preview images will be added here -->
                             </div>
                             <div id="gpsStatus" class="mt-2"></div>
                         </div>
